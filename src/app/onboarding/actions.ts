@@ -57,6 +57,9 @@ export async function completeOnboardingAction(
       where: { id: user.id },
       data: { lookingFor, onboardingCompletedAt: new Date() },
     });
+  }, {
+    maxWait: 10_000,
+    timeout: 20_000,
   });
 
   redirect("/app");
