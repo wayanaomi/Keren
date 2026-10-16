@@ -1,0 +1,646 @@
+// Keren — AI Opportunity Intelligence Platform
+// Prisma schema. No seed data — database starts empty by design.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Auth / Users
+// ---------------------------------------------------------------------------
+
+enum UserRole {
+  OWNER
+  MEMBER
+  ADMIN
+  CONSULTANT
+  SUPERADMIN
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  passwordHash  String?
+
+  // platform-level role (SUPERADMIN manages the Keren admin dashboard itself)
+  platformRole UserRole @default(MEMBER)
+
+  onboardingCompletedAt DateTime?
+  lookingFor            String[] // Grants, Tenders, RFPs, Accelerators, Competitions, Investors, Other funding
+
+  accounts Account[]
+  sessions Session[]
+
+  memberships        OrganizationMember[]
+  auditLogs          AuditLog[]
+  notifications      Notification[]
+  savedOpportunities SavedOpportunity[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([email])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ---------------------------------------------------------------------------
+// Organization
+// ---------------------------------------------------------------------------
+
+enum OrganizationType {
+  STARTUP
+  SME
+  NGO
+  CONSULTANT
+  INDIVIDUAL
+  OTHER
+}
+
+enum BusinessStage {
+  IDEA
+  PROTOTYPE
+  PRE_SEED
+  SEED
+  GROWTH
+  SERIES_A_PLUS
+  NEW
+  EARLY
+  ESTABLISHED
+}
+
+model Organization {
+  id   String @id @default(cuid())
+  name String
+
+  // Basic
+  website     String?
+  country     String?
+  city        String?
+  type        OrganizationType @default(OTHER)
+  foundedYear Int?
+  industry    String?
+  description String?          @db.Text
+
+  // Business
+  businessModel          String?  @db.Text
+  productsServices       String?  @db.Text
+  targetCustomers        String?  @db.Text
+  marketsServed          String[]
+  revenueRange           String?
+  employeeCount          Int?
+  annualTurnover         Float?
+  annualTurnoverCurrency String?  @default("USD")
+
+  // Funding
+  fundingStage         BusinessStage?
+  previousFunding      String?        @db.Text
+  amountRaised         Float?
+  fundingRequired      Float?
+  preferredFundingType String?
+
+  // Impact
+  socialImpact        String?  @db.Text
+  environmentalImpact String?  @db.Text
+  sdgs                String[]
+  beneficiaries       String?  @db.Text
+  geographicImpact    String[]
+
+  // Capabilities
+  services          String[]
+  certifications    String[]
+  previousContracts String?  @db.Text
+  previousProjects  String?  @db.Text
+  areasOfExpertise  String[]
+
+  businessStage BusinessStage?
+
+  profileCompleteness Int @default(0) // 0-100, computed on save
+
+  members            OrganizationMember[]
+  founders           Founder[]
+  savedOpportunities SavedOpportunity[]
+  matches            Match[]
+  applications       Application[]
+  knowledgeDocuments KnowledgeDocument[]
+  notifications      Notification[]
+  subscription       Subscription?
+  usage              Usage?
+  auditLogs          AuditLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([country])
+  @@index([industry])
+}
+
+enum MemberRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+model OrganizationMember {
+  id             String     @id @default(cuid())
+  userId         String
+  organizationId String
+  role           MemberRole @default(MEMBER)
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, organizationId])
+  @@index([organizationId])
+}
+
+model Founder {
+  id             String  @id @default(cuid())
+  organizationId String
+  name           String
+  role           String?
+  experience     String? @db.Text
+  linkedinUrl    String?
+  bio            String? @db.Text
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+}
+
+// ---------------------------------------------------------------------------
+// Opportunities
+// ---------------------------------------------------------------------------
+
+enum OpportunityType {
+  GRANT
+  TENDER
+  RFP
+  ACCELERATOR
+  COMPETITION
+  VC_FUNDING
+  LOAN
+  PROCUREMENT
+  FELLOWSHIP
+  PILOT
+  OTHER
+}
+
+enum VerificationStatus {
+  VERIFIED
+  NEEDS_VERIFICATION
+  EXPIRED
+}
+
+enum OpportunityStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+model Opportunity {
+  id     String @id @default(cuid())
+  title  String
+  funder String
+
+  type        OpportunityType
+  description String          @db.Text
+
+  country           String?
+  eligibleCountries String[]
+  sector            String?
+  industry          String?
+  applicantTypes    OrganizationType[]
+  businessStages    BusinessStage[]
+
+  fundingType   String?
+  fundingAmount Float?
+  currency      String? @default("USD")
+  minFunding    Float?
+  maxFunding    Float?
+
+  minRevenue   Float?
+  minEmployees Int?
+
+  openingDate DateTime?
+  deadline    DateTime?
+
+  applicationUrl String?
+  sourceUrl      String?
+  sourceName     String?
+
+  eligibilityRequirements String[] // structured, one requirement per line
+  requiredDocuments       String[]
+  keywords                String[]
+
+  status             OpportunityStatus  @default(PUBLISHED)
+  verificationStatus VerificationStatus @default(NEEDS_VERIFICATION)
+  lastVerifiedAt     DateTime?
+
+  createdById String?
+  questions   ApplicationQuestionTemplate[]
+
+  savedBy      SavedOpportunity[]
+  matches      Match[]
+  applications Application[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([type])
+  @@index([deadline])
+  @@index([country])
+  @@index([sector])
+  @@index([status, verificationStatus])
+}
+
+// Questions a funder asks on their application — reusable per opportunity
+model ApplicationQuestionTemplate {
+  id            String  @id @default(cuid())
+  opportunityId String
+  question      String  @db.Text
+  helpText      String? @db.Text
+  order         Int     @default(0)
+  maxWords      Int?
+
+  opportunity Opportunity         @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  answers     ApplicationAnswer[]
+
+  @@index([opportunityId])
+}
+
+model SavedOpportunity {
+  id             String @id @default(cuid())
+  userId         String
+  organizationId String
+  opportunityId  String
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  opportunity  Opportunity  @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([organizationId, opportunityId])
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Matching (deterministic score, stored for reuse/history)
+// ---------------------------------------------------------------------------
+
+model Match {
+  id             String @id @default(cuid())
+  organizationId String
+  opportunityId  String
+
+  score Int // 0-100, deterministic
+
+  breakdown           Json // { criterion: { points, max, reason } }
+  matchedRequirements String[]
+  potentialBlockers   String[]
+  missingInformation  String[]
+  explanation         String?  @db.Text // AI-generated, grounded in breakdown only
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  opportunity  Opportunity  @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organizationId, opportunityId])
+  @@index([organizationId, score])
+}
+
+// ---------------------------------------------------------------------------
+// Applications
+// ---------------------------------------------------------------------------
+
+enum ApplicationStatus {
+  SAVED
+  CONSIDERING
+  ELIGIBLE
+  DRAFTING
+  READY_TO_SUBMIT
+  SUBMITTED
+  UNDER_REVIEW
+  WON
+  REJECTED
+}
+
+model Application {
+  id             String  @id @default(cuid())
+  organizationId String
+  opportunityId  String
+  createdById    String?
+
+  status ApplicationStatus @default(SAVED)
+
+  submittedAt DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  opportunity  Opportunity  @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  answers          ApplicationAnswer[]
+  requirements     ApplicationRequirement[]
+  complianceChecks ComplianceCheck[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organizationId, opportunityId])
+  @@index([organizationId, status])
+}
+
+model ApplicationAnswer {
+  id            String  @id @default(cuid())
+  applicationId String
+  questionId    String? // link to template question when available
+  questionText  String  @db.Text // snapshot, in case template changes
+
+  draftAnswer        String?  @db.Text
+  finalAnswer        String?  @db.Text
+  sourceInformation  String[] // what the draft was grounded in
+  missingInformation String[] // what Keren could not determine
+  aiGenerated        Boolean  @default(false)
+
+  application Application                  @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  question    ApplicationQuestionTemplate? @relation(fields: [questionId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([applicationId])
+}
+
+model ApplicationRequirement {
+  id            String  @id @default(cuid())
+  applicationId String
+  label         String
+  isSatisfied   Boolean @default(false)
+  documentId    String?
+
+  application Application        @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  document    KnowledgeDocument? @relation(fields: [documentId], references: [id])
+
+  @@index([applicationId])
+}
+
+model ComplianceCheck {
+  id            String @id @default(cuid())
+  applicationId String
+
+  completionPercentage Int
+  missingItems         Json // string[]
+  conflicts            Json // [{field, applicationValue, profileValue}]
+  warnings             Json // string[]
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([applicationId])
+}
+
+// ---------------------------------------------------------------------------
+// Knowledge base
+// ---------------------------------------------------------------------------
+
+enum DocumentType {
+  BUSINESS_PLAN
+  PITCH_DECK
+  PREVIOUS_APPLICATION
+  FOUNDER_CV
+  FINANCIAL_DOCUMENT
+  PRODUCT_DOCUMENT
+  COMPANY_PROFILE
+  IMPACT_REPORT
+  PREVIOUS_PROPOSAL
+  OTHER
+}
+
+enum DocumentStatus {
+  UPLOADED
+  PROCESSING
+  PROCESSED
+  FAILED
+}
+
+model KnowledgeDocument {
+  id             String  @id @default(cuid())
+  organizationId String
+  uploadedById   String?
+
+  name       String
+  type       DocumentType
+  storageKey String // path/key in storage provider, never exposed directly to client
+  mimeType   String
+  sizeBytes  Int
+
+  status           DocumentStatus @default(UPLOADED)
+  extractedSummary String?        @db.Text
+  extractedFacts   Json? // structured key facts extracted for reuse
+
+  organization Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  requirements ApplicationRequirement[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId])
+}
+
+// ---------------------------------------------------------------------------
+// Notifications
+// ---------------------------------------------------------------------------
+
+enum NotificationType {
+  DEADLINE_REMINDER
+  NEW_MATCH
+  APPLICATION_STATUS
+  SYSTEM
+}
+
+model Notification {
+  id             String  @id @default(cuid())
+  userId         String?
+  organizationId String?
+
+  type    NotificationType
+  title   String
+  message String           @db.Text
+  link    String?
+  readAt  DateTime?
+
+  user         User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, readAt])
+  @@index([organizationId])
+}
+
+model NotificationPreference {
+  id             String @id @default(cuid())
+  organizationId String @unique
+
+  remind30d Boolean @default(true)
+  remind14d Boolean @default(true)
+  remind7d  Boolean @default(true)
+  remind3d  Boolean @default(true)
+  remind24h Boolean @default(true)
+
+  emailEnabled Boolean @default(true)
+  inAppEnabled Boolean @default(true)
+}
+
+// ---------------------------------------------------------------------------
+// Subscription / Billing (abstracted — provider-agnostic)
+// ---------------------------------------------------------------------------
+
+enum PlanTier {
+  FREE
+  PRO
+  BUSINESS
+  CONSULTANT
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  TRIALING
+  PAST_DUE
+  CANCELED
+  INACTIVE
+}
+
+enum PaymentProvider {
+  PAYSTACK
+  STRIPE
+  NONE
+}
+
+model Subscription {
+  id             String @id @default(cuid())
+  organizationId String @unique
+
+  tier   PlanTier           @default(FREE)
+  status SubscriptionStatus @default(ACTIVE)
+
+  provider           PaymentProvider @default(NONE)
+  providerCustomerId String?
+  providerSubId      String?
+
+  currentPeriodEnd DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Usage {
+  id             String @id @default(cuid())
+  organizationId String @unique
+
+  periodStart            DateTime @default(now())
+  searchesUsed           Int      @default(0)
+  aiGenerationsUsed      Int      @default(0)
+  savedOpportunitiesUsed Int      @default(0)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  updatedAt DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// AI monitoring + audit
+// ---------------------------------------------------------------------------
+
+enum AiServiceName {
+  MATCHER_EXPLANATION
+  APPLICATION_WRITER
+  COMPLIANCE_CHECKER
+  OPPORTUNITY_BRIEF
+}
+
+enum AiGenerationStatus {
+  SUCCESS
+  FAILED
+}
+
+model AiGeneration {
+  id               String             @id @default(cuid())
+  organizationId   String?
+  service          AiServiceName
+  status           AiGenerationStatus
+  promptTokens     Int?
+  completionTokens Int?
+  errorMessage     String?            @db.Text
+
+  createdAt DateTime @default(now())
+
+  @@index([service, status])
+  @@index([organizationId])
+}
+
+model AuditLog {
+  id             String  @id @default(cuid())
+  userId         String?
+  organizationId String?
+  action         String
+  targetType     String?
+  targetId       String?
+  metadata       Json?
+
+  user         User?         @relation(fields: [userId], references: [id])
+  organization Organization? @relation(fields: [organizationId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId])
+  @@index([action])
+}
