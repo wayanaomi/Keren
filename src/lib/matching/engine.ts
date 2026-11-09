@@ -40,9 +40,16 @@ export interface CriterionResult {
   reason: string;
 }
 
+export interface QualificationCheck {
+  label: string;
+  status: CriterionResult["status"];
+  reason: string;
+}
+
 export interface MatchResult {
   score: number;
   breakdown: CriterionResult[];
+  qualificationChecks: QualificationCheck[];
   matchedRequirements: string[];
   potentialBlockers: string[];
   missingInformation: string[];
@@ -65,7 +72,27 @@ function normalize(value: string | null | undefined) {
 function matchCountry(org: MatchOrgInput, opp: MatchOpportunityInput): CriterionResult {
   const max = WEIGHTS.country;
   if (opp.eligibleCountries.length === 0 && !opp.country) {
-    return { label: "Country", points: max, maxPoints: max, status: "not-applicable", reason: "Open to all countries." };
+    const geographyUnconfirmed = opp.eligibilityRequirements.some((requirement) =>
+      /geographic eligibility has not been confirmed/i.test(requirement),
+    );
+
+    if (geographyUnconfirmed) {
+      return {
+        label: "Country",
+        points: 0,
+        maxPoints: max,
+        status: "unknown",
+        reason: "The source has not confirmed which countries are eligible. Review the official announcement.",
+      };
+    }
+
+    return {
+      label: "Country",
+      points: max,
+      maxPoints: max,
+      status: "not-applicable",
+      reason: "Open to all countries.",
+    };
   }
   if (!org.country) {
     return { label: "Country", points: 0, maxPoints: max, status: "unknown", reason: "Organization country is not set." };
@@ -110,7 +137,27 @@ function matchStage(org: MatchOrgInput, opp: MatchOpportunityInput): CriterionRe
 function matchOrgType(org: MatchOrgInput, opp: MatchOpportunityInput): CriterionResult {
   const max = WEIGHTS.orgType;
   if (opp.applicantTypes.length === 0) {
-    return { label: "Organization type", points: max, maxPoints: max, status: "not-applicable", reason: "Open to all organization types." };
+    const sourceCategoriesNeedReview = opp.eligibilityRequirements.some((requirement) =>
+      /^Eligible applicant category listed by source:/i.test(requirement),
+    );
+
+    if (sourceCategoriesNeedReview) {
+      return {
+        label: "Organization type",
+        points: 0,
+        maxPoints: max,
+        status: "unknown",
+        reason: "The source lists applicant categories that have not yet been mapped to Keren organization types. Review eligibility manually.",
+      };
+    }
+
+    return {
+      label: "Organization type",
+      points: max,
+      maxPoints: max,
+      status: "not-applicable",
+      reason: "Open to all organization types.",
+    };
   }
   const met = opp.applicantTypes.includes(org.type);
   return met
@@ -157,6 +204,41 @@ function matchRevenue(org: MatchOrgInput, opp: MatchOpportunityInput): Criterion
         maxPoints: max,
         status: "unmet",
         reason: `Minimum annual revenue requirement is $${opp.minRevenue.toLocaleString()}.`,
+      };
+}
+
+function checkEmployeeEligibility(
+  org: MatchOrgInput,
+  opp: MatchOpportunityInput,
+): QualificationCheck {
+  if (opp.minEmployees == null) {
+    return {
+      label: "Employee count",
+      status: "not-applicable",
+      reason: "No minimum employee requirement.",
+    };
+  }
+
+  if (org.employeeCount == null) {
+    return {
+      label: "Employee count",
+      status: "unknown",
+      reason: `This opportunity requires at least ${opp.minEmployees} employees; your employee count is not set.`,
+    };
+  }
+
+  const met = org.employeeCount >= opp.minEmployees;
+
+  return met
+    ? {
+        label: "Employee count",
+        status: "met",
+        reason: `Your ${org.employeeCount} employees meet the minimum requirement of ${opp.minEmployees}.`,
+      }
+    : {
+        label: "Employee count",
+        status: "unmet",
+        reason: `This opportunity requires at least ${opp.minEmployees} employees; your organization has ${org.employeeCount}.`,
       };
 }
 
@@ -225,15 +307,29 @@ export function computeMatch(org: MatchOrgInput, opp: MatchOpportunityInput): Ma
     matchEligibilityRequirements(org, opp),
   ];
 
+  // Employee count is a qualification check, not a weighted scoring criterion.
+  const qualificationChecks = [checkEmployeeEligibility(org, opp)];
+
   const score = breakdown.reduce((sum, c) => sum + c.points, 0);
 
-  const matchedRequirements = breakdown.filter((c) => c.status === "met" || c.status === "not-applicable").map((c) => c.reason);
-  const potentialBlockers = breakdown.filter((c) => c.status === "unmet").map((c) => c.reason);
-  const missingInformation = breakdown.filter((c) => c.status === "unknown").map((c) => c.reason);
+  const matchedRequirements = breakdown
+    .filter((c) => c.status === "met" || c.status === "not-applicable")
+    .map((c) => c.reason);
+
+  const potentialBlockers = [
+    ...breakdown.filter((c) => c.status === "unmet").map((c) => c.reason),
+    ...qualificationChecks.filter((c) => c.status === "unmet").map((c) => c.reason),
+  ];
+
+  const missingInformation = [
+    ...breakdown.filter((c) => c.status === "unknown").map((c) => c.reason),
+    ...qualificationChecks.filter((c) => c.status === "unknown").map((c) => c.reason),
+  ];
 
   return {
     score: Math.max(0, Math.min(100, score)),
     breakdown,
+    qualificationChecks,
     matchedRequirements,
     potentialBlockers,
     missingInformation,

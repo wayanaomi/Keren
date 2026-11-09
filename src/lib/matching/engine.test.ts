@@ -101,3 +101,41 @@ describe("matchFitLabel", () => {
     expect(matchFitLabel(20)).toBe("Weak fit");
   });
 });
+
+
+describe("source eligibility uncertainty", () => {
+  it("does not interpret unconfirmed source geography as global eligibility", () => {
+    const opportunity = {
+      ...baseOpp,
+      country: null,
+      eligibleCountries: [],
+      eligibilityRequirements: [
+        "Geographic eligibility has not been confirmed. Review the official announcement before publishing.",
+      ],
+    };
+
+    const result = computeMatch(baseOrg, opportunity);
+    const countryCheck = result.breakdown.find((item) => item.label === "Country");
+
+    expect(countryCheck?.status).toBe("unknown");
+    expect(result.missingInformation).toContain(countryCheck?.reason);
+  });
+
+  it("does not interpret unmapped source applicant categories as open to all organization types", () => {
+    const opportunity = {
+      ...baseOpp,
+      applicantTypes: [],
+      eligibilityRequirements: [
+        "Eligible applicant category listed by source: Small businesses.",
+      ],
+    };
+
+    const result = computeMatch(baseOrg, opportunity);
+    const organizationCheck = result.breakdown.find(
+      (item) => item.label === "Organization type",
+    );
+
+    expect(organizationCheck?.status).toBe("unknown");
+    expect(result.missingInformation).toContain(organizationCheck?.reason);
+  });
+});

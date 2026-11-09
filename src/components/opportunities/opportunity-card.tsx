@@ -73,6 +73,9 @@ export function OpportunityCard({
             {!match.potentialBlockers[0] && match.matchedRequirements[0] && (
               <p className="text-xs text-stone">✓ {match.matchedRequirements[0]}</p>
             )}
+            {!match.potentialBlockers[0] && match.missingInformation[0] && (
+              <p className="text-xs text-stone">ⓘ {match.missingInformation[0]}</p>
+            )}
           </div>
         </div>
       ) : null}
