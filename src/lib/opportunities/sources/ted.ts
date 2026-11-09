@@ -119,12 +119,13 @@ function getSearchQuery(): string {
     publicationCutoff.getUTCDate() - DAYS_TO_SEARCH,
   );
 
-  return [
+  const filters = [
     `publication-date>=${tedDateToken(publicationCutoff)}`,
     "notice-type = cn-standard",
     `deadline-receipt-tender-date-lot>=${tedDateToken(today)}`,
-    "SORT BY publication-date DESC",
   ].join(" AND ");
+
+  return `${filters} SORT BY publication-date DESC`;
 }
 
 async function searchTedPage(page: number): Promise<TedSearchResponse> {
