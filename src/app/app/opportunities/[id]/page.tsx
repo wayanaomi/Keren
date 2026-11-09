@@ -95,6 +95,30 @@ export default async function OpportunityDetailPage({ params }: { params: Promis
             </div>
           ))}
         </div>
+
+        {match.qualificationChecks.some((check) => check.status !== "not-applicable") ? (
+          <div className="mt-4 border-t border-line pt-3">
+            <h3 className="mb-2 text-sm font-bold text-ink">Additional qualification checks</h3>
+            <ul className="space-y-2">
+              {match.qualificationChecks
+                .filter((check) => check.status !== "not-applicable")
+                .map((check) => (
+                  <li key={check.label} className="text-sm">
+                    <span className={
+                      check.status === "unmet"
+                        ? "font-semibold text-danger"
+                        : check.status === "unknown"
+                          ? "font-semibold text-warn"
+                          : "font-semibold text-verified"
+                    }>
+                      {check.status === "unmet" ? "Potential blocker: " : check.status === "unknown" ? "Missing information: " : "Met: "}
+                    </span>
+                    <span className="text-stone">{check.reason}</span>
+                  </li>
+                ))}
+            </ul>
+          </div>
+        ) : null}
       </section>
 
       <section className="rounded-lg border border-line bg-white p-5">
