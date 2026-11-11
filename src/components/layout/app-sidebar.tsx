@@ -29,12 +29,12 @@ const NAV_ITEMS = [
 export function AppSidebar() {
   const activePath = usePathname();
   return (
-    <aside className="hidden w-60 shrink-0 border-r border-line bg-white md:flex md:flex-col">
-      <div className="flex h-16 items-center gap-2 border-b border-line px-5">
+    <aside className="hidden h-dvh w-60 shrink-0 flex-col overflow-hidden border-r border-line bg-white md:flex">
+      <div className="flex h-16 shrink-0 items-center gap-2 border-b border-line px-5">
         <KerenMark className="h-7 w-7" />
         <span className="font-sans text-lg font-extrabold text-ink">eren</span>
       </div>
-      <nav className="flex flex-1 flex-col gap-0.5 p-3">
+      <nav className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto p-3">
         {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
           const active = activePath === href || (href !== "/app" && activePath.startsWith(href));
           return (

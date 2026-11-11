@@ -7,6 +7,10 @@ import { Spark } from "@/components/brand/marks";
 import { generateDraftAction, saveFinalAnswerAction } from "@/app/app/applications/actions";
 import type { ApplicationAnswer } from "@prisma/client";
 
+type ApplicationAnswerWithQuestion = ApplicationAnswer & {
+  question: { helpText: string | null; maxWords: number | null } | null;
+};
+
 const INSTRUCTIONS = [
   { label: "Shorten", value: "Shorten this answer." },
   { label: "Expand", value: "Expand this answer with more detail." },
@@ -14,7 +18,7 @@ const INSTRUCTIONS = [
   { label: "Formal tone", value: "Rewrite in a more formal tone." },
 ];
 
-export function AnswerCard({ answer }: { answer: ApplicationAnswer }) {
+export function AnswerCard({ answer }: { answer: ApplicationAnswerWithQuestion }) {
   const [draft, setDraft] = useState(answer.finalAnswer ?? answer.draftAnswer ?? "");
   const [pending, startTransition] = useTransition();
   const [saved, setSaved] = useState(false);
@@ -37,6 +41,16 @@ export function AnswerCard({ answer }: { answer: ApplicationAnswer }) {
   return (
     <div className="rounded-lg border border-line bg-white p-5">
       <h3 className="text-sm font-bold text-ink">{answer.questionText}</h3>
+
+      {answer.question?.helpText && (
+        <p className="mt-2 text-sm text-stone">{answer.question.helpText}</p>
+      )}
+
+      {answer.question?.maxWords && (
+        <p className="mt-1 text-xs text-stone">
+          Maximum {answer.question.maxWords.toLocaleString()} words
+        </p>
+      )}
 
       {answer.aiGenerated && (
         <p className="mt-2 flex items-center gap-1.5 rounded-md bg-orange-tint px-2.5 py-1.5 text-xs font-medium text-ember">

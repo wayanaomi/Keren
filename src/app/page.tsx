@@ -26,7 +26,7 @@ const steps = [
 export default function LandingPage() {
   return (
     <main className="min-h-screen bg-cream text-ink">
-      <header className="relative z-10 border-b border-line bg-cream">
+      <header className="sticky top-0 z-50 border-b border-line bg-cream">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-5 py-4 sm:px-8 lg:px-12">
           <Link href="/" aria-label="Keren home">
             <KerenLogo showDescriptor />

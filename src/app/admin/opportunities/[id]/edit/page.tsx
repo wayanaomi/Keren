@@ -5,13 +5,18 @@ import { updateOpportunityAction } from "../../actions";
 
 export default async function EditOpportunityPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const opportunity = await db.opportunity.findUnique({ where: { id } });
+  const opportunity = await db.opportunity.findUnique({
+    where: { id },
+    include: {
+      questions: { orderBy: { order: "asc" } },
+    },
+  });
   if (!opportunity) notFound();
 
   return (
     <div className="mx-auto max-w-3xl">
       <h1 className="mb-5 text-xl font-bold text-ink">Edit opportunity</h1>
-      <OpportunityForm opportunity={opportunity} action={updateOpportunityAction.bind(null, id)} />
+      <OpportunityForm opportunity={opportunity} questions={opportunity.questions} action={updateOpportunityAction.bind(null, id)} />
     </div>
   );
 }

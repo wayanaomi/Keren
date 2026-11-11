@@ -7,6 +7,8 @@ export interface ApplicationWriterInput {
   opportunityTitle: string;
   opportunityFacts: Record<string, unknown>;
   question: string;
+  helpText?: string;
+  maxWords?: number;
   instruction?: string; // e.g. "shorten", "expand", "change tone to formal"
   previousAnswer?: string;
 }
@@ -30,6 +32,8 @@ customers, or any other fact not present in the provided JSON.
 OUTPUT: respond with JSON: { "draftAnswer": string, "sourceInformation": string[],
 "missingInformation": string[] }.
 - "draftAnswer" answers the question using only allowed information, in clear plain English.
+- Follow questionHelpText when it is supplied. Treat it as official funder guidance, not as evidence about the applicant.
+- When maxWords is supplied, keep draftAnswer within that word limit.
 - "sourceInformation" lists which facts fields you drew on (e.g. "organization.description").
 - "missingInformation" lists anything the question needs that was not present in the provided facts —
   phrase each as "Keren cannot determine X from the information provided."
@@ -64,6 +68,8 @@ export async function generateApplicationDraft(
             organizationFacts: input.organizationFacts,
             opportunity: { title: input.opportunityTitle, facts: input.opportunityFacts },
             question: input.question,
+            questionHelpText: input.helpText ?? null,
+            maxWords: input.maxWords ?? null,
             instruction: input.instruction ?? null,
             previousAnswer: input.previousAnswer ?? null,
           }),

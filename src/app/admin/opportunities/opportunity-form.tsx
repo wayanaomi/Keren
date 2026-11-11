@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import type { Opportunity } from "@prisma/client";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,14 +19,39 @@ function toDateInputValue(date: Date | null) {
   return new Date(date).toISOString().slice(0, 10);
 }
 
+type QuestionTemplateInput = {
+  id: string;
+  question: string;
+  helpText: string | null;
+  maxWords: number | null;
+  order: number;
+};
+
+type QuestionRow = {
+  id: string;
+  question: string;
+  helpText: string;
+  maxWords: string;
+};
+
 export function OpportunityForm({
   opportunity,
+  questions: initialQuestions = [],
   action,
 }: {
   opportunity?: Opportunity;
+  questions?: QuestionTemplateInput[];
   action: (prev: AdminActionState, formData: FormData) => Promise<AdminActionState>;
 }) {
   const [state, formAction, pending] = useActionState(action, {});
+  const [questionRows, setQuestionRows] = useState<QuestionRow[]>(() =>
+    initialQuestions.map((question) => ({
+      id: question.id,
+      question: question.question,
+      helpText: question.helpText ?? "",
+      maxWords: question.maxWords?.toString() ?? "",
+    }))
+  );
 
   return (
     <form action={formAction} className="space-y-6">
@@ -165,6 +190,133 @@ export function OpportunityForm({
         <Field label="Keywords (comma-separated)">
           <Input name="keywords" defaultValue={opportunity?.keywords.join(", ") ?? ""} />
         </Field>
+      </Card>
+
+      <Card className="space-y-4 p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-sm font-bold uppercase tracking-wide text-stone">
+              Application questions
+            </h2>
+            <p className="mt-1 text-sm text-stone">
+              Add questions from the funder's official application form. These
+              become individual workspace items for users and can be answered
+              with Keren's AI assistant.
+            </p>
+          </div>
+          <span className="shrink-0 text-xs text-stone">
+            {questionRows.length} questions
+          </span>
+        </div>
+
+        {questionRows.length === 0 && (
+          <div className="rounded-md border border-dashed border-line p-4 text-sm text-stone">
+            No application questions have been added. Add verified questions
+            from the official funder application form.
+          </div>
+        )}
+
+        {questionRows.map((question, index) => (
+          <div
+            key={index}
+            className="space-y-3 rounded-md border border-line p-4"
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-ink">
+                Question {index + 1}
+              </h3>
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() =>
+                  setQuestionRows((current) =>
+                    current.filter((_, rowIndex) => rowIndex !== index)
+                  )
+                }
+                className="text-sm font-medium text-red-600 hover:underline disabled:opacity-50"
+              >
+                Remove
+              </button>
+            </div>
+
+            <input
+              type="hidden"
+              name="questionId"
+              value={question.id}
+            />
+
+            <Field label="Question text">
+              <Textarea
+                name="question"
+                required
+                value={question.question}
+                onChange={(event) =>
+                  setQuestionRows((current) =>
+                    current.map((row, rowIndex) =>
+                      rowIndex === index
+                        ? { ...row, question: event.target.value }
+                        : row
+                    )
+                  )
+                }
+                placeholder="Enter the exact question from the official application form."
+                className="min-h-20"
+              />
+            </Field>
+
+            <Field label="Help text / guidance (optional)">
+              <Textarea
+                name="questionHelpText"
+                value={question.helpText}
+                onChange={(event) =>
+                  setQuestionRows((current) =>
+                    current.map((row, rowIndex) =>
+                      rowIndex === index
+                        ? { ...row, helpText: event.target.value }
+                        : row
+                    )
+                  )
+                }
+                placeholder="Include official instructions or guidance supplied by the funder."
+              />
+            </Field>
+
+            <Field label="Maximum words (optional)">
+              <Input
+                name="questionMaxWords"
+                type="number"
+                min="1"
+                max="10000"
+                step="1"
+                value={question.maxWords}
+                onChange={(event) =>
+                  setQuestionRows((current) =>
+                    current.map((row, rowIndex) =>
+                      rowIndex === index
+                        ? { ...row, maxWords: event.target.value }
+                        : row
+                    )
+                  )
+                }
+                placeholder="e.g. 500"
+              />
+            </Field>
+          </div>
+        ))}
+
+        <button
+          type="button"
+          disabled={pending || questionRows.length >= 100}
+          onClick={() =>
+            setQuestionRows((current) => [
+              ...current,
+              { id: "", question: "", helpText: "", maxWords: "" },
+            ])
+          }
+          className="rounded-md border border-line px-4 py-2 text-sm font-semibold text-ink hover:bg-stone-50 disabled:opacity-50"
+        >
+          + Add application question
+        </button>
       </Card>
 
       {state.error && <p className="text-sm text-danger">{state.error}</p>}
