@@ -24,7 +24,10 @@ export async function generateDraftAction(answerId: string, instruction?: string
 
   const answer = await db.applicationAnswer.findFirst({
     where: { id: answerId, application: { organizationId: organization.id } },
-    include: { application: { include: { opportunity: true } } },
+    include: {
+      question: { select: { helpText: true, maxWords: true } },
+      application: { include: { opportunity: true } },
+    },
   });
   if (!answer) throw new Error("Answer not found");
 
@@ -50,6 +53,8 @@ export async function generateDraftAction(answerId: string, instruction?: string
       deadline: opp.deadline,
     },
     question: answer.questionText,
+    helpText: answer.question?.helpText ?? undefined,
+    maxWords: answer.question?.maxWords ?? undefined,
     instruction,
     previousAnswer: answer.draftAnswer ?? undefined,
   });

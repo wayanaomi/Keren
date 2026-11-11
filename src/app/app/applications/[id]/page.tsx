@@ -17,7 +17,14 @@ export default async function ApplicationWorkspacePage({ params }: { params: Pro
     where: { id, organizationId: organization.id },
     include: {
       opportunity: true,
-      answers: { orderBy: { createdAt: "asc" } },
+      answers: {
+        orderBy: { createdAt: "asc" },
+        include: {
+          question: {
+            select: { helpText: true, maxWords: true },
+          },
+        },
+      },
       requirements: true,
       complianceChecks: { orderBy: { createdAt: "desc" }, take: 1 },
     },

@@ -6,11 +6,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const { organization, user } = await requireOrganization();
 
   return (
-    <div className="flex min-h-screen bg-cream">
+    <div className="flex h-dvh overflow-hidden bg-cream">
       <AppSidebar />
-      <div className="flex flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <AppTopbar orgName={organization.name} userName={user.name ?? user.email ?? ""} />
-        <main className="flex-1 p-6">{children}</main>
+        <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-6">{children}</main>
       </div>
     </div>
   );
