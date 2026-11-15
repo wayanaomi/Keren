@@ -1,5 +1,6 @@
 "use server";
 
+import { isUsableAnswer } from "@/lib/applications/answer-utils";
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { requireOrganization } from "@/lib/auth/session";
@@ -59,6 +60,12 @@ export async function generateDraftAction(answerId: string, instruction?: string
     previousAnswer: answer.draftAnswer ?? undefined,
   });
 
+  // Do not save generic failure/configuration messages as application answers.
+  if (!isUsableAnswer(result.draftAnswer)) {
+    revalidatePath(`/app/applications/${answer.applicationId}`);
+    return;
+  }
+
   await db.applicationAnswer.update({
     where: { id: answerId },
     data: {
@@ -66,6 +73,9 @@ export async function generateDraftAction(answerId: string, instruction?: string
       sourceInformation: result.sourceInformation,
       missingInformation: result.missingInformation,
       aiGenerated: true,
+      ...(answer.finalAnswer && !isUsableAnswer(answer.finalAnswer)
+        ? { finalAnswer: null }
+        : {}),
     },
   });
 

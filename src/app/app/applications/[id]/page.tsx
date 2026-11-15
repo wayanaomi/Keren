@@ -8,6 +8,7 @@ import { RequirementChecklist } from "@/components/applications/requirement-chec
 import { ComplianceReport } from "@/components/applications/compliance-report";
 import { ApplicationStatusSelect } from "@/components/applications/application-status-select";
 import { EmptyState } from "@/components/ui/empty-state";
+import { isUsableAnswer } from "@/lib/applications/answer-utils";
 
 export default async function ApplicationWorkspacePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -21,7 +22,7 @@ export default async function ApplicationWorkspacePage({ params }: { params: Pro
         orderBy: { createdAt: "asc" },
         include: {
           question: {
-            select: { helpText: true, maxWords: true },
+            select: { helpText: true, maxWords: true, order: true },
           },
         },
       },
@@ -31,6 +32,32 @@ export default async function ApplicationWorkspacePage({ params }: { params: Pro
   });
 
   if (!application) notFound();
+
+  // Only template-linked answers are canonical. Legacy unlinked rows are
+  // retained in the database but are not rendered as duplicate question cards.
+  const canonicalAnswers = new Map<
+    string,
+    (typeof application.answers)[number]
+  >();
+
+  const answerQuality = (answer: (typeof application.answers)[number]) =>
+    (isUsableAnswer(answer.finalAnswer) ? 100 : 0) +
+    (isUsableAnswer(answer.draftAnswer) ? 10 : 0) +
+    (answer.aiGenerated ? 1 : 0);
+
+  for (const answer of application.answers) {
+    if (!answer.questionId) continue;
+
+    const current = canonicalAnswers.get(answer.questionId);
+
+    if (!current || answerQuality(answer) > answerQuality(current)) {
+      canonicalAnswers.set(answer.questionId, answer);
+    }
+  }
+
+  const visibleAnswers = Array.from(canonicalAnswers.values()).sort(
+    (a, b) => (a.question?.order ?? 0) - (b.question?.order ?? 0)
+  );
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -58,14 +85,14 @@ export default async function ApplicationWorkspacePage({ params }: { params: Pro
 
       <div>
         <h2 className="mb-3 text-base font-bold text-ink">Application questions</h2>
-        {application.answers.length === 0 ? (
+        {visibleAnswers.length === 0 ? (
           <EmptyState
             title="No questions yet"
             body="This opportunity has no application questions configured. An admin can add them to the opportunity record."
           />
         ) : (
           <div className="space-y-4">
-            {application.answers.map((answer) => (
+            {visibleAnswers.map((answer) => (
               <AnswerCard key={answer.id} answer={answer} />
             ))}
           </div>

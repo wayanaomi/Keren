@@ -1,9 +1,12 @@
 import type { Organization } from "@prisma/client";
+import {
+  isUsableAnswer,
+  normalizeQuestionText,
+} from "../applications/answer-utils";
 
 /**
- * Compliance Checker — deterministic, like the matching engine. Completion is counted
- * from actual records; conflicts are detected with simple, explainable numeric checks
- * rather than an LLM guessing at consistency.
+ * Compliance Checker — deterministic and explainable.
+ * Duplicate legacy answer records count as one application question.
  */
 
 export interface ComplianceAnswerInput {
@@ -34,28 +37,58 @@ export function runComplianceCheck(
   const warnings: string[] = [];
   const conflicts: ComplianceResult["conflicts"] = [];
 
-  const answeredCount = answers.filter((a) => a.finalAnswer && a.finalAnswer.trim().length > 0).length;
-  if (answers.length > 0 && answeredCount < answers.length) {
-    missingItems.push(`${answers.length - answeredCount} application question(s) not yet answered.`);
+  // Prefer a duplicate record that has a genuine final answer, then a useful
+  // draft. This prevents an empty legacy row from hiding a completed answer.
+  const canonicalAnswers = new Map<string, ComplianceAnswerInput>();
+
+  const answerQuality = (answer: ComplianceAnswerInput) =>
+    (isUsableAnswer(answer.finalAnswer) ? 100 : 0) +
+    (isUsableAnswer(answer.draftAnswer) ? 10 : 0);
+
+  for (const answer of answers) {
+    const key = normalizeQuestionText(answer.questionText);
+    const current = canonicalAnswers.get(key);
+
+    if (!current || answerQuality(answer) > answerQuality(current)) {
+      canonicalAnswers.set(key, answer);
+    }
+  }
+
+  const uniqueAnswers = Array.from(canonicalAnswers.values());
+  const answeredCount = uniqueAnswers.filter((answer) =>
+    isUsableAnswer(answer.finalAnswer)
+  ).length;
+
+  if (uniqueAnswers.length > 0 && answeredCount < uniqueAnswers.length) {
+    missingItems.push(
+      `${uniqueAnswers.length - answeredCount} application question(s) not yet answered.`
+    );
   }
 
   if (profileCompleteness < 100) {
     missingItems.push("Organization profile is incomplete.");
   }
 
-  const unsatisfiedRequirements = requirements.filter((r) => !r.isSatisfied);
-  for (const req of unsatisfiedRequirements) {
-    missingItems.push(req.label);
+  const unsatisfiedRequirements = requirements.filter((requirement) => !requirement.isSatisfied);
+
+  for (const requirement of unsatisfiedRequirements) {
+    missingItems.push(requirement.label);
   }
 
-  // Employee-count conflict detection: compare any number near "employee(s)" in an
-  // answer against the organization's recorded employee count.
+  // Employee-count conflict detection uses one canonical answer per question.
   if (organization.employeeCount != null) {
-    for (const answer of answers) {
-      const text = answer.finalAnswer ?? answer.draftAnswer ?? "";
+    for (const answer of uniqueAnswers) {
+      const text = isUsableAnswer(answer.finalAnswer)
+        ? answer.finalAnswer
+        : isUsableAnswer(answer.draftAnswer)
+          ? answer.draftAnswer
+          : "";
+
       const match = text.match(/(\d+)\s*(full[- ]time\s*)?employees?/i);
+
       if (match) {
         const stated = Number(match[1]);
+
         if (stated !== organization.employeeCount) {
           conflicts.push({
             field: "Employee count",
@@ -67,14 +100,17 @@ export function runComplianceCheck(
     }
   }
 
-  if (answers.length === 0) {
+  if (uniqueAnswers.length === 0) {
     warnings.push("No application questions have been added yet.");
   }
 
-  const totalChecks = answers.length + 1 /* profile */ + requirements.length;
+  const totalChecks = uniqueAnswers.length + 1 + requirements.length;
   const satisfiedChecks =
-    answeredCount + (profileCompleteness === 100 ? 1 : 0) + requirements.filter((r) => r.isSatisfied).length;
-  const completionPercentage = totalChecks === 0 ? 0 : Math.round((satisfiedChecks / totalChecks) * 100);
+    answeredCount +
+    (profileCompleteness === 100 ? 1 : 0) +
+    requirements.filter((requirement) => requirement.isSatisfied).length;
+
+  const completionPercentage = Math.round((satisfiedChecks / totalChecks) * 100);
 
   return { completionPercentage, missingItems, conflicts, warnings };
 }

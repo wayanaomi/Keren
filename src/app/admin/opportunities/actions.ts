@@ -1,5 +1,7 @@
 "use server";
 
+import { isUsableAnswer, normalizeQuestionText } from "@/lib/applications/answer-utils";
+
 import type { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -137,50 +139,147 @@ async function backfillApplicationAnswers(
   tx: Prisma.TransactionClient,
   opportunityId: string
 ) {
-  const [applications, templates] = await Promise.all([
-    tx.application.findMany({
-      where: { opportunityId },
-      select: { id: true },
-    }),
-    tx.applicationQuestionTemplate.findMany({
-      where: { opportunityId },
-      orderBy: { order: "asc" },
-      select: { id: true, question: true },
-    }),
-  ]);
+  const applications = await tx.application.findMany({
+    where: { opportunityId },
+    select: { id: true },
+  });
+
+  const templates = await tx.applicationQuestionTemplate.findMany({
+    where: { opportunityId },
+    orderBy: { order: "asc" },
+    select: { id: true, question: true },
+  });
 
   if (applications.length === 0 || templates.length === 0) return;
 
   const applicationIds = applications.map((application) => application.id);
-  const questionIds = templates.map((question) => question.id);
 
+  // Read every answer, including legacy rows whose questionId is null.
   const existingAnswers = await tx.applicationAnswer.findMany({
-    where: {
-      applicationId: { in: applicationIds },
-      questionId: { in: questionIds },
+    where: { applicationId: { in: applicationIds } },
+    select: {
+      id: true,
+      applicationId: true,
+      questionId: true,
+      questionText: true,
+      draftAnswer: true,
+      finalAnswer: true,
+      sourceInformation: true,
+      missingInformation: true,
+      aiGenerated: true,
+      updatedAt: true,
     },
-    select: { applicationId: true, questionId: true },
   });
 
-  const existingKeys = new Set(
-    existingAnswers.map((answer) => `${answer.applicationId}:${answer.questionId}`)
-  );
+  for (const application of applications) {
+    const applicationAnswers = existingAnswers.filter(
+      (answer) => answer.applicationId === application.id
+    );
 
-  const missingAnswers = applications.flatMap((application) =>
-    templates
-      .filter(
-        (question) =>
-          !existingKeys.has(`${application.id}:${question.id}`)
-      )
-      .map((question) => ({
-        applicationId: application.id,
-        questionId: question.id,
-        questionText: question.question,
-      }))
-  );
+    const consumedLegacyIds = new Set<string>();
 
-  if (missingAnswers.length > 0) {
-    await tx.applicationAnswer.createMany({ data: missingAnswers });
+    for (const template of templates) {
+      const linkedAnswers = applicationAnswers.filter(
+        (answer) => answer.questionId === template.id
+      );
+
+      const legacyMatches = applicationAnswers
+        .filter(
+          (answer) =>
+            answer.questionId === null &&
+            !consumedLegacyIds.has(answer.id) &&
+            normalizeQuestionText(answer.questionText) ===
+              normalizeQuestionText(template.question)
+        )
+        .sort((a, b) => {
+          const score = (answer: typeof a) =>
+            (isUsableAnswer(answer.finalAnswer) ? 100 : 0) +
+            (isUsableAnswer(answer.draftAnswer) ? 50 : 0) +
+            (answer.aiGenerated ? 10 : 0) +
+            answer.sourceInformation.length +
+            answer.missingInformation.length;
+
+          return (
+            score(b) - score(a) ||
+            b.updatedAt.getTime() - a.updatedAt.getTime()
+          );
+        });
+
+      const canonical = linkedAnswers[0] ?? legacyMatches[0];
+
+      if (!canonical) {
+        await tx.applicationAnswer.create({
+          data: {
+            applicationId: application.id,
+            questionId: template.id,
+            questionText: template.question,
+            sourceInformation: [],
+            missingInformation: [],
+            aiGenerated: false,
+          },
+        });
+        continue;
+      }
+
+      // Keep every legacy row in the database, but copy its useful content
+      // into the canonical linked answer.
+      for (const legacy of legacyMatches) {
+        consumedLegacyIds.add(legacy.id);
+      }
+
+      const additionalAnswers = [
+        ...linkedAnswers.slice(1),
+        ...(linkedAnswers.length > 0 ? legacyMatches : legacyMatches.slice(1)),
+      ];
+
+      const candidates = [canonical, ...additionalAnswers];
+
+      const draftAnswer =
+        candidates.find((answer) => isUsableAnswer(answer.draftAnswer))
+          ?.draftAnswer ?? null;
+
+      const finalAnswer =
+        candidates.find((answer) => isUsableAnswer(answer.finalAnswer))
+          ?.finalAnswer ?? null;
+
+      const sourceInformation = Array.from(
+        new Set(candidates.flatMap((answer) => answer.sourceInformation ?? []))
+      );
+
+      const missingInformation = Array.from(
+        new Set(candidates.flatMap((answer) => answer.missingInformation ?? []))
+      );
+
+      const aiGenerated = candidates.some((answer) => answer.aiGenerated);
+
+      const isPromotingLegacy = linkedAnswers.length === 0;
+
+      const updateData = {
+        ...(isPromotingLegacy
+          ? { questionId: template.id, questionText: template.question }
+          : {}),
+        draftAnswer,
+        finalAnswer,
+        sourceInformation,
+        missingInformation,
+        aiGenerated,
+      };
+
+      const changed =
+        (isPromotingLegacy && canonical.questionId !== template.id) ||
+        canonical.draftAnswer !== draftAnswer ||
+        canonical.finalAnswer !== finalAnswer ||
+        canonical.aiGenerated !== aiGenerated ||
+        JSON.stringify(canonical.sourceInformation) !== JSON.stringify(sourceInformation) ||
+        JSON.stringify(canonical.missingInformation) !== JSON.stringify(missingInformation);
+
+      if (changed) {
+        await tx.applicationAnswer.update({
+          where: { id: canonical.id },
+          data: updateData,
+        });
+      }
+    }
   }
 }
 

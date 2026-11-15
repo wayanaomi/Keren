@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Spark } from "@/components/brand/marks";
 import { generateDraftAction, saveFinalAnswerAction } from "@/app/app/applications/actions";
 import type { ApplicationAnswer } from "@prisma/client";
+import { isUsableAnswer } from "@/lib/applications/answer-utils";
 
 type ApplicationAnswerWithQuestion = ApplicationAnswer & {
   question: { helpText: string | null; maxWords: number | null } | null;
@@ -19,7 +20,13 @@ const INSTRUCTIONS = [
 ];
 
 export function AnswerCard({ answer }: { answer: ApplicationAnswerWithQuestion }) {
-  const [draft, setDraft] = useState(answer.finalAnswer ?? answer.draftAnswer ?? "");
+  const initialAnswer = isUsableAnswer(answer.finalAnswer)
+    ? answer.finalAnswer
+    : isUsableAnswer(answer.draftAnswer)
+      ? answer.draftAnswer
+      : "";
+
+  const [draft, setDraft] = useState(initialAnswer);
   const [pending, startTransition] = useTransition();
   const [saved, setSaved] = useState(false);
 
@@ -78,7 +85,7 @@ export function AnswerCard({ answer }: { answer: ApplicationAnswerWithQuestion }
 
       <div className="mt-3 flex flex-wrap gap-2">
         <Button size="sm" onClick={() => generate()} disabled={pending}>
-          {pending ? "Generating…" : answer.draftAnswer ? "Regenerate" : "Generate draft"}
+          {pending ? "Generating…" : isUsableAnswer(answer.draftAnswer) ? "Regenerate" : "Generate draft"}
         </Button>
         {INSTRUCTIONS.map((i) => (
           <Button key={i.label} size="sm" variant="secondary" disabled={pending} onClick={() => generate(i.value)}>
