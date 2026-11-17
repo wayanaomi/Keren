@@ -10,11 +10,8 @@ const MAX_FILE_SIZE = 25 * 1024 * 1024;
 
 const MIME_TYPES: Record<string, string> = {
   pdf: "application/pdf",
-  doc: "application/msword",
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  xls: "application/vnd.ms-excel",
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  ppt: "application/vnd.ms-powerpoint",
   pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 };
 
@@ -83,7 +80,7 @@ function validateUpload(input: UploadInput): ValidatedUpload | string {
   const contentType = extension ? MIME_TYPES[extension] : undefined;
 
   if (!contentType) {
-    return "Unsupported file. Upload a PDF, DOC, DOCX, XLS, XLSX, PPT or PPTX.";
+    return "Unsupported file. Upload a PDF, DOCX, XLSX or PPTX document.";
   }
 
   return {
@@ -130,7 +127,7 @@ export async function createKnowledgeDocumentUploadUrlAction(
 
 export async function completeKnowledgeDocumentUploadAction(
   input: UploadInput & { key: string },
-): Promise<{ error?: string; success?: string }> {
+): Promise<{ error?: string; success?: string; documentId?: string }> {
   const { user, organization } = await requireOrganization();
 
   const validated = validateUpload(input);
@@ -161,7 +158,7 @@ export async function completeKnowledgeDocumentUploadAction(
       };
     }
 
-    await db.knowledgeDocument.create({
+    const document = await db.knowledgeDocument.create({
       data: {
         organizationId: organization.id,
         uploadedById: user.id,
@@ -172,12 +169,16 @@ export async function completeKnowledgeDocumentUploadAction(
         sizeBytes: metadata.sizeBytes,
         status: "UPLOADED",
       },
+      select: { id: true },
     });
 
     revalidatePath("/app/knowledge-base");
     revalidatePath("/app");
 
-    return { success: "Document uploaded successfully." };
+    return {
+      success: "Document uploaded successfully.",
+      documentId: document.id,
+    };
   } catch (error) {
     await storage.delete(input.key).catch(() => undefined);
 

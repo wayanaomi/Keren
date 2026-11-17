@@ -199,9 +199,9 @@ export function OpportunityForm({
               Application questions
             </h2>
             <p className="mt-1 text-sm text-stone">
-              Add questions from the funder's official application form. These
+              Add questions from the funder&apos;s official application form. These
               become individual workspace items for users and can be answered
-              with Keren's AI assistant.
+              with Keren&apos;s AI assistant.
             </p>
           </div>
           <span className="shrink-0 text-xs text-stone">
