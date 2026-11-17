@@ -15,6 +15,7 @@ export interface StorageService {
     sizeBytes: number;
     contentType?: string;
   }>;
+  getObjectBytes(key: string, maxBytes: number): Promise<Buffer>;
   getSignedDownloadUrl(key: string, fileName?: string): Promise<string>;
   delete(key: string): Promise<void>;
 }
@@ -115,6 +116,63 @@ class S3StorageService implements StorageService {
       sizeBytes: result.ContentLength ?? 0,
       contentType: result.ContentType,
     };
+  }
+
+  async getObjectBytes(key: string, maxBytes: number): Promise<Buffer> {
+    if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) {
+      throw new Error("A valid maximum document size is required.");
+    }
+
+    const config = this.getConfig();
+    const client = this.getClient(config);
+
+    const result = await client.send(
+      new GetObjectCommand({
+        Bucket: config.bucket,
+        Key: key,
+      }),
+    );
+
+    if (!result.Body) {
+      throw new Error("The stored document has no readable content.");
+    }
+
+    if (
+      typeof result.ContentLength === "number" &&
+      result.ContentLength > maxBytes
+    ) {
+      throw new Error("The stored document exceeds the permitted size.");
+    }
+
+    const body = result.Body as AsyncIterable<Uint8Array> & {
+      destroy?: () => void;
+    };
+
+    const chunks: Buffer[] = [];
+    let totalBytes = 0;
+
+    try {
+      for await (const chunk of body) {
+        const bytes = Buffer.from(chunk);
+        totalBytes += bytes.byteLength;
+
+        if (totalBytes > maxBytes) {
+          body.destroy?.();
+          throw new Error("The stored document exceeds the permitted size.");
+        }
+
+        chunks.push(bytes);
+      }
+    } catch (error) {
+      body.destroy?.();
+      throw error;
+    }
+
+    if (totalBytes === 0) {
+      throw new Error("The stored document is empty.");
+    }
+
+    return Buffer.concat(chunks, totalBytes);
   }
 
   async getSignedDownloadUrl(

@@ -57,6 +57,7 @@ export function UploadDocumentForm() {
     setPending(true);
 
     let uploadKey: string | undefined;
+    let uploadCompleted = false;
 
     try {
       const intent = await createKnowledgeDocumentUploadUrlAction({
@@ -92,23 +93,62 @@ export function UploadDocumentForm() {
         key: uploadKey,
       });
 
-      if (result.error) {
-        throw new Error(result.error);
+      if (result.error || !result.documentId) {
+        throw new Error(result.error || "The uploaded document could not be saved.");
       }
 
-      setSuccess(result.success || "Document uploaded successfully.");
+      uploadCompleted = true;
       formRef.current?.reset();
+      setSuccess("Document uploaded. Keren is extracting its text...");
+
+      const processingResponse = await fetch(
+        `/api/knowledge-base/${encodeURIComponent(result.documentId)}/process`,
+        { method: "POST" },
+      );
+
+      const processingResult = (await processingResponse
+        .json()
+        .catch(() => ({}))) as {
+          status?: string;
+          error?: string;
+        };
+
+      if (
+        processingResponse.ok &&
+        processingResult.status === "PROCESSED"
+      ) {
+        setError("");
+        setSuccess("Document uploaded and processed successfully.");
+      } else if (processingResult.status === "FAILED") {
+        setSuccess("");
+        setError(
+          `Document uploaded, but text extraction failed: ${processingResult.error || "Please retry or upload another supported document."}`,
+        );
+      } else if (processingResponse.status === 202) {
+        setError("");
+        setSuccess("Document uploaded. Processing is already underway.");
+      } else {
+        setSuccess("");
+        setError(
+          `Document uploaded, but extraction could not be completed: ${processingResult.error || "Please try again from the Knowledge Base."}`,
+        );
+      }
+
       router.refresh();
     } catch (uploadError) {
-      if (uploadKey) {
+      if (uploadKey && !uploadCompleted) {
         await cancelKnowledgeDocumentUploadAction(uploadKey).catch(() => undefined);
       }
 
+      setSuccess("");
       setError(
-        uploadError instanceof Error
-          ? uploadError.message
-          : "The document could not be uploaded. Please try again.",
+        uploadCompleted
+          ? "The document was uploaded, but extraction could not be started. Refresh the Knowledge Base and retry processing."
+          : uploadError instanceof Error
+            ? uploadError.message
+            : "The document could not be uploaded. Please try again.",
       );
+      router.refresh();
     } finally {
       setPending(false);
     }
@@ -166,7 +206,7 @@ export function UploadDocumentForm() {
           type="file"
           required
           disabled={pending}
-          accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx"
+          accept=".pdf,.docx,.xlsx,.pptx"
           className="block w-full text-sm text-stone file:mr-3 file:rounded-md file:border-0 file:bg-stone-100 file:px-3 file:py-2 file:text-sm file:font-medium file:text-ink"
         />
       </div>

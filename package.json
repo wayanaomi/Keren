@@ -23,15 +23,16 @@
     "clsx": "^2.1.1",
     "date-fns": "^4.4.0",
     "lucide-react": "^1.53.0",
-    "next": "16.4.0",
+    "next": "16.4.6",
     "next-auth": "^5.0.0-beta.32",
+    "officeparser": "8.7.1",
     "openai": "^7.30.1",
     "prisma": "^6.19.3",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-hook-form": "^7.89.0",
     "tailwind-merge": "^3.7.0",
-    "zod": "^4.6.5"
+    "zod": "4.6.6"
   },
   "devDependencies": {
     "@tailwindcss/turbopack": "^4",
@@ -39,9 +40,20 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.4.0",
+    "eslint-config-next": "16.4.6",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^5.0.3"
+  },
+  "allowScripts": {
+    "@prisma/client@6.19.3": true,
+    "@prisma/engines@6.19.3": true,
+    "prisma@6.19.3": true,
+    "unrs-resolver@1.12.2": true,
+    "fsevents": false,
+    "tesseract.js": false
+  },
+  "overrides": {
+    "deepmerge-ts": "8.0.2"
   }
 }

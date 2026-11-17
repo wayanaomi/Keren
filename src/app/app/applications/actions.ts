@@ -35,7 +35,13 @@ export async function generateDraftAction(answerId: string, instruction?: string
   const [founders, documents] = await Promise.all([
     db.founder.findMany({ where: { organizationId: organization.id } }),
     db.knowledgeDocument.findMany({
-      where: { organizationId: organization.id },
+      where: {
+        organizationId: organization.id,
+        status: "PROCESSED",
+        extractedSummary: { not: null },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 6,
       select: { name: true, type: true, extractedSummary: true },
     }),
   ]);

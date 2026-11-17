@@ -1,5 +1,8 @@
 import type { Founder, KnowledgeDocument, Organization } from "@prisma/client";
 
+const MAX_DOCUMENT_CONTEXT_CHARACTERS = 24_000;
+const MAX_SINGLE_DOCUMENT_CONTEXT_CHARACTERS = 8_000;
+
 /**
  * Builds the single structured "known facts" object that AI services are allowed
  * to draw from. Only fields the user has actually filled in are included — nothing
@@ -59,11 +62,33 @@ export function buildOrganizationFacts(
   }
 
   if (documents.length > 0) {
-    facts.uploadedDocuments = documents.map((d) => ({
-      name: d.name,
-      type: d.type,
-      summary: d.extractedSummary,
-    }));
+    let remainingCharacters = MAX_DOCUMENT_CONTEXT_CHARACTERS;
+
+    const uploadedDocuments = documents.flatMap((document) => {
+      const originalText = document.extractedSummary?.trim();
+
+      if (!originalText || remainingCharacters <= 0) return [];
+
+      const allowedCharacters = Math.min(
+        MAX_SINGLE_DOCUMENT_CONTEXT_CHARACTERS,
+        remainingCharacters,
+      );
+
+      const extractedText = originalText.slice(0, allowedCharacters);
+      remainingCharacters -= extractedText.length;
+
+      return [{
+        name: document.name,
+        type: document.type,
+        source: "user-uploaded document; unverified source material",
+        extractedText,
+        contentTruncated: originalText.length > allowedCharacters,
+      }];
+    });
+
+    if (uploadedDocuments.length > 0) {
+      facts.uploadedDocuments = uploadedDocuments;
+    }
   }
 
   return facts;

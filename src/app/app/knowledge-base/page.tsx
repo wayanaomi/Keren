@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { UploadDocumentForm } from "./upload-form";
 import { deleteKnowledgeDocumentAction } from "./actions";
+import { RetryDocumentProcessingButton } from "./retry-processing-button";
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} bytes`;
@@ -25,6 +26,7 @@ export default async function KnowledgeBasePage() {
       name: true,
       type: true,
       status: true,
+      extractedSummary: true,
       sizeBytes: true,
       createdAt: true,
     },
@@ -81,12 +83,74 @@ export default async function KnowledgeBasePage() {
                   {doc.createdAt.toLocaleDateString()}
                 </p>
                 <div className="mt-2">
+
                   <Badge
+
                     tone={doc.status === "PROCESSED" ? "verified" : "neutral"}
+
                   >
+
                     {doc.status}
+
                   </Badge>
+
                 </div>
+
+
+                {doc.status === "PROCESSED" && (
+
+                  <p className="mt-2 text-xs text-stone">
+
+                    Extracted text is available to application drafting.
+
+                  </p>
+
+                )}
+
+
+                {doc.status === "PROCESSING" && (
+
+                  <p className="mt-2 text-xs text-stone">
+
+                    Text extraction is in progress.
+
+                  </p>
+
+                )}
+
+
+                {doc.status === "FAILED" && (
+
+                  <>
+
+                    {doc.extractedSummary && (
+
+                      <p className="mt-2 max-w-xl break-words text-xs text-red-700">
+
+                        {doc.extractedSummary.slice(0, 600)}
+
+                      </p>
+
+                    )}
+
+                    <RetryDocumentProcessingButton documentId={doc.id} />
+
+                  </>
+
+                )}
+
+
+                {doc.status === "UPLOADED" && (
+
+                  <RetryDocumentProcessingButton
+
+                    documentId={doc.id}
+
+                    label="Process document"
+
+                  />
+
+                )}
               </div>
 
               <div className="flex shrink-0 items-center gap-3">
