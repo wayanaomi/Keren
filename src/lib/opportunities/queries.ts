@@ -3,8 +3,18 @@ import type { OpportunityType, Prisma } from "@prisma/client";
 import type { OpportunityFilterInput } from "@/lib/validators/opportunity";
 
 export async function listOpportunities(filters: OpportunityFilterInput) {
+  const now = new Date();
   const where: Prisma.OpportunityWhereInput = {
     status: "PUBLISHED",
+    verificationStatus: { not: "EXPIRED" },
+    AND: [
+      {
+        OR: [
+          { deadline: null },
+          { deadline: { gte: now } },
+        ],
+      },
+    ],
   };
 
   if (filters.q) {

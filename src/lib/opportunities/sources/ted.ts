@@ -1,4 +1,13 @@
-import { db } from "@/lib/db";
+import {
+  getOpportunitySourceDefinition,
+} from "@/lib/opportunities/source-engine/registry";
+import {
+  runOpportunitySourceImport,
+} from "@/lib/opportunities/source-engine/runner";
+import type {
+  NormalizedOpportunitySourceItem,
+  OpportunitySourceImportResult,
+} from "@/lib/opportunities/source-engine/types";
 
 const TED_SEARCH_API = "https://api.ted.europa.eu/v3/notices/search";
 const DAYS_TO_SEARCH = 30;
@@ -13,14 +22,7 @@ interface TedSearchResponse {
   totalNoticeCount?: number;
 }
 
-export interface TedImportResult {
-  scanned: number;
-  imported: number;
-  duplicates: number;
-  skipped: number;
-  failed: number;
-  totalAvailable: number;
-}
+export type TedImportResult = OpportunitySourceImportResult;
 
 function asRecord(value: unknown): JsonRecord {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -72,7 +74,10 @@ function displayText(value: unknown): string | null {
  * TED date values can look like 2026-11-17+01:00.
  * Store the calendar date as UTC midnight to avoid shifting the deadline.
  */
-function parseTedDate(value: unknown): Date | null {
+export function parseTedDate(
+  value: unknown,
+  endOfDay = false,
+): Date | null {
   const input = asText(value);
   if (!input) return null;
 
@@ -84,6 +89,10 @@ function parseTedDate(value: unknown): Date | null {
   const day = Number(match[3]);
 
   const date = new Date(Date.UTC(year, month - 1, day));
+
+  if (endOfDay) {
+    date.setUTCHours(23, 59, 59, 999);
+  }
 
   if (
     Number.isNaN(date.getTime()) ||
@@ -128,8 +137,67 @@ function getSearchQuery(): string {
   return `${filters} SORT BY publication-date DESC`;
 }
 
+const TED_FETCH_MAX_ATTEMPTS = 3;
+const TED_FETCH_TIMEOUT_MS = 30_000;
+const TED_RETRYABLE_HTTP_STATUSES = new Set([
+  408, 429, 500, 502, 503, 504,
+]);
+
+async function fetchTedWithRetry(
+  url: string,
+  init: Omit<RequestInit, "signal">,
+): Promise<Response> {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= TED_FETCH_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await fetch(url, {
+        ...init,
+        signal: AbortSignal.timeout(TED_FETCH_TIMEOUT_MS),
+      });
+
+      if (
+        TED_RETRYABLE_HTTP_STATUSES.has(response.status) &&
+        attempt < TED_FETCH_MAX_ATTEMPTS
+      ) {
+        const status = response.status;
+        await response.body?.cancel().catch(() => undefined);
+
+        console.warn(
+          `[TED] Search returned HTTP ${status}; retrying (${attempt}/${TED_FETCH_MAX_ATTEMPTS}).`,
+        );
+
+        await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
+        continue;
+      }
+
+      return response;
+    } catch (error) {
+      lastError = error;
+
+      if (attempt === TED_FETCH_MAX_ATTEMPTS) {
+        break;
+      }
+
+      console.warn(
+        `[TED] Search connection attempt ${attempt} failed; retrying.`,
+        error,
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
+    }
+  }
+
+  throw new Error(
+    `TED search connection failed after ${TED_FETCH_MAX_ATTEMPTS} attempts: ${
+      lastError instanceof Error ? lastError.message : String(lastError)
+    }`,
+    { cause: lastError },
+  );
+}
+
 async function searchTedPage(page: number): Promise<TedSearchResponse> {
-  const response = await fetch(TED_SEARCH_API, {
+  const response = await fetchTedWithRetry(TED_SEARCH_API, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -154,7 +222,6 @@ async function searchTedPage(page: number): Promise<TedSearchResponse> {
       paginationMode: "PAGE_NUMBER",
     }),
     cache: "no-store",
-    signal: AbortSignal.timeout(30000),
   });
 
   const responseText = await response.text();
@@ -214,7 +281,7 @@ function mapTedNotice(notice: JsonRecord) {
   );
 
   const validDeadlines = rawDeadlineValues
-    .map(parseTedDate)
+    .map((value) => parseTedDate(value, true))
     .filter((value): value is Date => value !== null)
     .sort((a, b) => a.getTime() - b.getTime());
 
@@ -317,86 +384,98 @@ function mapTedNotice(notice: JsonRecord) {
 export async function importTedOpportunities(
   adminUserId: string,
 ): Promise<TedImportResult> {
-  const result: TedImportResult = {
-    scanned: 0,
-    imported: 0,
-    duplicates: 0,
-    skipped: 0,
-    failed: 0,
-    totalAvailable: 0,
-  };
+  const source = getOpportunitySourceDefinition("ted");
 
-  const today = utcDayStart();
-
-  for (
-    let page = 1;
-    page <= MAX_PAGES_PER_RUN && result.imported < MAX_IMPORTS_PER_RUN;
-    page += 1
-  ) {
-    const searchResult = await searchTedPage(page);
-    const notices = searchResult.notices ?? [];
-
-    if (page === 1) {
-      result.totalAvailable = Number(searchResult.totalNoticeCount ?? 0);
-    }
-
-    if (notices.length === 0) break;
-
-    for (const notice of notices) {
-      if (result.imported >= MAX_IMPORTS_PER_RUN) break;
-
-      result.scanned += 1;
-
-      const publicationNumber =
-        asText(notice["publication-number"]) ?? "unknown";
-
-      try {
-        const opportunity = mapTedNotice(notice);
-
-        if (!opportunity.deadline) {
-          result.skipped += 1;
-          continue;
-        }
-
-        if (opportunity.deadline < today) {
-          result.skipped += 1;
-          continue;
-        }
-
-        const existing = await db.opportunity.findFirst({
-          where: {
-            sourceUrl: opportunity.sourceUrl,
-          },
-          select: {
-            id: true,
-          },
-        });
-
-        if (existing) {
-          result.duplicates += 1;
-          continue;
-        }
-
-        await db.opportunity.create({
-          data: {
-            ...opportunity,
-            createdById: adminUserId,
-          },
-        });
-
-        result.imported += 1;
-      } catch (error) {
-        result.failed += 1;
-
-        console.error(
-          `[TED] Failed to import notice ${publicationNumber}:`,
-          error,
-        );
-      }
-    }
-
-    if (notices.length < PAGE_SIZE) break;
+  if (!source) {
+    throw new Error("TED source is missing from the source registry.");
   }
 
-  return result;
+  return runOpportunitySourceImport({
+    source,
+    adminUserId,
+    fetchItems: async () => {
+      const items: NormalizedOpportunitySourceItem[] = [];
+
+      let scanned = 0;
+      let skipped = 0;
+      let failed = 0;
+      let totalAvailable = 0;
+
+      const today = utcDayStart();
+
+      for (
+        let page = 1;
+        page <= MAX_PAGES_PER_RUN &&
+        items.length < MAX_IMPORTS_PER_RUN;
+        page += 1
+      ) {
+        const searchResult = await searchTedPage(page);
+        const notices = searchResult.notices ?? [];
+
+        if (page === 1) {
+          const reportedTotal = Number(searchResult.totalNoticeCount ?? 0);
+          totalAvailable =
+            Number.isFinite(reportedTotal) && reportedTotal >= 0
+              ? reportedTotal
+              : 0;
+        }
+
+        if (notices.length === 0) break;
+
+        for (const notice of notices) {
+          if (items.length >= MAX_IMPORTS_PER_RUN) break;
+
+          scanned += 1;
+
+          const publicationNumber =
+            asText(notice["publication-number"]) ?? "unknown";
+
+          try {
+            const opportunity = mapTedNotice(notice);
+
+            if (!opportunity.deadline) {
+              skipped += 1;
+              continue;
+            }
+
+            if (opportunity.deadline < today) {
+              skipped += 1;
+              continue;
+            }
+
+            items.push({
+              externalId: publicationNumber,
+              sourceUrl: opportunity.sourceUrl,
+              canonicalUrl: opportunity.sourceUrl,
+              title: opportunity.title,
+              sourceStatus: "ACTIVE",
+              sourcePublishedAt: opportunity.openingDate,
+              opportunity,
+            });
+          } catch (error) {
+            failed += 1;
+            console.error(
+              `[TED] Failed to normalize notice ${publicationNumber}:`,
+              error,
+            );
+          }
+        }
+
+        if (
+          notices.length < PAGE_SIZE ||
+          items.length >= MAX_IMPORTS_PER_RUN
+        ) {
+          break;
+        }
+      }
+
+      return {
+        items,
+        scanned,
+        skipped,
+        failed,
+        totalAvailable,
+      };
+    },
+  });
 }
