@@ -1,6 +1,24 @@
-import { db } from "@/lib/db";
+import {
+  getOpportunitySourceDefinition,
+} from "@/lib/opportunities/source-engine/registry";
+import {
+  runOpportunitySourceImport,
+} from "@/lib/opportunities/source-engine/runner";
+import type {
+  NormalizedOpportunitySourceItem,
+  OpportunitySourceImportResult,
+} from "@/lib/opportunities/source-engine/types";
 
 const GRANTS_GOV_API = "https://api.grants.gov/v1/api";
+const GRANTS_GOV_MAX_ATTEMPTS = 3;
+const GRANTS_GOV_REQUEST_TIMEOUT_MS = 30_000;
+const GRANTS_GOV_RETRYABLE_STATUSES = new Set([
+  408, 429, 500, 502, 503, 504,
+]);
+
+function waitBeforeRetry(attempt: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, attempt * 1000));
+}
 
 type JsonRecord = Record<string, unknown>;
 
@@ -87,6 +105,44 @@ function parseDate(value: unknown): Date | null {
   return isPlausibleDate(date);
 }
 
+export function parseGrantsGovDeadline(
+  value: unknown,
+): Date | null {
+  const input = asText(value);
+  if (!input) return null;
+
+  const isoMatch = input.match(
+    /^(\d{4})-(\d{2})-(\d{2})(?:-00-00-00)?$/,
+  );
+
+  const usMatch = input.match(
+    /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/,
+  );
+
+  if (isoMatch || usMatch) {
+    const year = Number(isoMatch ? isoMatch[1] : usMatch![3]);
+    const month = Number(isoMatch ? isoMatch[2] : usMatch![1]);
+    const day = Number(isoMatch ? isoMatch[3] : usMatch![2]);
+
+    const date = new Date(
+      Date.UTC(year, month - 1, day, 23, 59, 59, 999),
+    );
+
+    if (
+      date.getUTCFullYear() !== year ||
+      date.getUTCMonth() !== month - 1 ||
+      date.getUTCDate() !== day
+    ) {
+      return null;
+    }
+
+    return isPlausibleDate(date);
+  }
+
+  // Preserve an explicit time when the API supplies one.
+  return isPlausibleDate(new Date(input));
+}
+
 function parseAmount(value: unknown): number | null {
   if (value === null || value === undefined || value === "") return null;
 
@@ -136,32 +192,68 @@ async function postToGrantsGov<T>(
   endpoint: string,
   body: JsonRecord,
 ): Promise<T> {
-  const response = await fetch(`${GRANTS_GOV_API}/${endpoint}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    body: JSON.stringify(body),
-    cache: "no-store",
-    signal: AbortSignal.timeout(20000),
-  });
+  for (let attempt = 1; attempt <= GRANTS_GOV_MAX_ATTEMPTS; attempt += 1) {
+    let response: Response;
 
-  if (!response.ok) {
-    throw new Error(
-      `Grants.gov ${endpoint} request failed with HTTP ${response.status}.`,
-    );
+    try {
+      response = await fetch(`${GRANTS_GOV_API}/${endpoint}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(body),
+        cache: "no-store",
+        signal: AbortSignal.timeout(GRANTS_GOV_REQUEST_TIMEOUT_MS),
+      });
+    } catch (error) {
+      if (attempt === GRANTS_GOV_MAX_ATTEMPTS) {
+        throw new Error(
+          `Grants.gov ${endpoint} connection failed after ${attempt} attempts: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+          { cause: error },
+        );
+      }
+
+      console.warn(
+        `[Grants.gov] ${endpoint} connection failed; retrying (${attempt}/${GRANTS_GOV_MAX_ATTEMPTS}).`,
+      );
+      await waitBeforeRetry(attempt);
+      continue;
+    }
+
+    if (
+      GRANTS_GOV_RETRYABLE_STATUSES.has(response.status) &&
+      attempt < GRANTS_GOV_MAX_ATTEMPTS
+    ) {
+      const status = response.status;
+      await response.body?.cancel().catch(() => undefined);
+      console.warn(
+        `[Grants.gov] ${endpoint} returned HTTP ${status}; retrying (${attempt}/${GRANTS_GOV_MAX_ATTEMPTS}).`,
+      );
+      await waitBeforeRetry(attempt);
+      continue;
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        `Grants.gov ${endpoint} request failed with HTTP ${response.status}.`,
+      );
+    }
+
+    const result = (await response.json()) as ApiResponse<T>;
+
+    if (Number(result.errorcode) !== 0 || !result.data) {
+      throw new Error(
+        asText(result.msg) ?? `Grants.gov ${endpoint} returned an API error.`,
+      );
+    }
+
+    return result.data;
   }
 
-  const result = (await response.json()) as ApiResponse<T>;
-
-  if (Number(result.errorcode) !== 0 || !result.data) {
-    throw new Error(
-      asText(result.msg) ?? `Grants.gov ${endpoint} returned an API error.`,
-    );
-  }
-
-  return result.data;
+  throw new Error(`Grants.gov ${endpoint} request exhausted its retries.`);
 }
 
 const GRANTS_GOV_SEARCH_TERMS = [
@@ -170,23 +262,18 @@ const GRANTS_GOV_SEARCH_TERMS = [
 ] as const;
 
 async function searchGrantsGov(): Promise<GrantsGovSearchHit[]> {
-  const searchResults = await Promise.all(
-    GRANTS_GOV_SEARCH_TERMS.map(async (keyword) => {
-      const data = await postToGrantsGov<GrantsGovSearchData>("search2", {
-        rows: 5,
-        keyword,
-        oppStatuses: "posted",
-        startRecordNum: 0,
-      });
-
-      return Array.isArray(data.oppHits) ? data.oppHits : [];
-    }),
-  );
-
   const uniqueById = new Map<string, GrantsGovSearchHit>();
 
-  for (const hits of searchResults) {
-    for (const hit of hits) {
+  // Keep requests sequential to reduce transient connection pressure.
+  for (const keyword of GRANTS_GOV_SEARCH_TERMS) {
+    const data = await postToGrantsGov<GrantsGovSearchData>("search2", {
+      rows: 5,
+      keyword,
+      oppStatuses: "posted",
+      startRecordNum: 0,
+    });
+
+    for (const hit of data.oppHits ?? []) {
       if (hit.id !== undefined && hit.id !== null) {
         uniqueById.set(String(hit.id), hit);
       }
@@ -260,10 +347,10 @@ function mapGrantsGovOpportunity(
     parseDate(hit.openDate);
 
   const deadline =
-    parseDate(synopsis.responseDateStr) ??
-    parseDate(synopsis.responseDate) ??
-    parseDate(detail.originalDueDate) ??
-    parseDate(hit.closeDate);
+    parseGrantsGovDeadline(synopsis.responseDateStr) ??
+    parseGrantsGovDeadline(synopsis.responseDate) ??
+    parseGrantsGovDeadline(detail.originalDueDate) ??
+    parseGrantsGovDeadline(hit.closeDate);
 
   const keywords = Array.from(
     new Set([
@@ -316,80 +403,76 @@ function mapGrantsGovOpportunity(
   };
 }
 
-export interface GrantsGovImportResult {
-  scanned: number;
-  imported: number;
-  duplicates: number;
-  skipped: number;
-  failed: number;
-}
-
 export async function importGrantsGovOpportunities(
   adminUserId: string,
-): Promise<GrantsGovImportResult> {
-  const hits = await searchGrantsGov();
+): Promise<OpportunitySourceImportResult> {
+  const source = getOpportunitySourceDefinition("grants-gov");
 
-  const result: GrantsGovImportResult = {
-    scanned: hits.length,
-    imported: 0,
-    duplicates: 0,
-    skipped: 0,
-    failed: 0,
-  };
+  if (!source) {
+    throw new Error("Grants.gov source is missing from the source registry.");
+  }
 
-  for (const hit of hits) {
-    try {
-      if (!hit.id) {
-        result.failed += 1;
-        continue;
-      }
+  return runOpportunitySourceImport({
+    source,
+    adminUserId,
+    fetchItems: async () => {
+      const hits = await searchGrantsGov();
+      const items: NormalizedOpportunitySourceItem[] = [];
 
-      const detail = await fetchGrantsGovOpportunity(hit.id);
-      const opportunity = mapGrantsGovOpportunity(hit, detail);
+      let skipped = 0;
+      let failed = 0;
 
-      if (opportunity.deadline) {
-        const today = new Date();
-        today.setUTCHours(0, 0, 0, 0);
+      for (const hit of hits) {
+        try {
+          if (
+            hit.id === undefined ||
+            hit.id === null ||
+            String(hit.id).trim() === ""
+          ) {
+            skipped += 1;
+            continue;
+          }
 
-        const closingDay = new Date(opportunity.deadline);
-        closingDay.setUTCHours(0, 0, 0, 0);
+          const detail = await fetchGrantsGovOpportunity(hit.id);
+          const opportunity = mapGrantsGovOpportunity(hit, detail);
 
-        if (closingDay < today) {
-          result.skipped += 1;
-          continue;
+          if (opportunity.deadline) {
+            const today = new Date();
+            today.setUTCHours(0, 0, 0, 0);
+
+            const closingDay = new Date(opportunity.deadline);
+            closingDay.setUTCHours(0, 0, 0, 0);
+
+            if (closingDay < today) {
+              skipped += 1;
+              continue;
+            }
+          }
+
+          items.push({
+            externalId: String(hit.id),
+            sourceUrl: opportunity.sourceUrl,
+            canonicalUrl: opportunity.sourceUrl,
+            title: opportunity.title,
+            sourceStatus: hit.oppStatus ?? "posted",
+            sourcePublishedAt: opportunity.openingDate,
+            opportunity,
+          });
+        } catch (error) {
+          failed += 1;
+          console.error(
+            `[Grants.gov] Failed to normalize opportunity ${hit.id}:`,
+            error,
+          );
         }
       }
 
-      const existing = await db.opportunity.findFirst({
-        where: {
-          sourceUrl: opportunity.sourceUrl,
-        },
-        select: {
-          id: true,
-        },
-      });
-
-      if (existing) {
-        result.duplicates += 1;
-        continue;
-      }
-
-      await db.opportunity.create({
-        data: {
-          ...opportunity,
-          createdById: adminUserId,
-        },
-      });
-
-      result.imported += 1;
-    } catch (error) {
-      result.failed += 1;
-      console.error(
-        `[Grants.gov] Failed to import opportunity ${hit.id}:`,
-        error,
-      );
-    }
-  }
-
-  return result;
+      return {
+        items,
+        scanned: hits.length,
+        skipped,
+        failed,
+      };
+    },
+  });
 }
