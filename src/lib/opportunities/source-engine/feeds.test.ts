@@ -99,6 +99,7 @@ describe("normalizeFeedEntries", () => {
 
     expect(result.items[0]).toMatchObject({
       externalId: "notice-123",
+      identityReference: "notice-123",
       sourceUrl: "https://example.org/notices/123?utm_source=feed",
       canonicalUrl: "https://example.org/notices/123",
       title: "Water infrastructure procurement",
@@ -149,6 +150,7 @@ describe("normalizeFeedEntries", () => {
     expect(result.items[0].sourceUpdatedAt).toEqual(
       new Date("2026-11-18T10:00:00Z"),
     );
+    expect(result.items[0].identityReference).toBe("tag:gov.uk,2026:fund-123");
   });
 
   it("skips entries with missing titles or usable links", () => {

@@ -445,6 +445,7 @@ export async function importTedOpportunities(
 
             items.push({
               externalId: publicationNumber,
+              identityReference: publicationNumber !== "unknown" ? publicationNumber : null,
               sourceUrl: opportunity.sourceUrl,
               canonicalUrl: opportunity.sourceUrl,
               title: opportunity.title,

@@ -28,20 +28,30 @@ const roadmap = [
   {
     category: "UN agencies",
     organizations: "UNDP, UNICEF, WHO, WFP, UNOPS and other UN entities",
+    status: "Credentials and scope validation required",
+    detail: "UNGM documents an OAuth-protected Notices API. Its documented Search Notices endpoint returns notices created by the authorized agency; it must not be represented as a global UN opportunity feed without broader access confirmation.",
+    url: "https://developer.ungm.org/Article/SearchNotices",
   },
   {
     category: "Nigeria public institutions",
-    organizations: "NNPC, NUPRC, TETFund, NITDA and other government agencies",
+    organizations: "NDDC, BPP/NOCOPO, TETFund, NITDA/NCAIR, NNPC, NUPRC and other public agencies",
+    status: "Public listings identified; ingestion path under validation",
+    detail: "NDDC publishes public tender headlines and deadlines, but states that full details and bidding require a vendor profile. BPP/NOCOPO data is also published as OCDS snapshots; its registry documents periodic retrieval and data-quality caveats, so it is not treated as a live tender feed. NCAIR's opportunity page mixes current and historical third-party listings, so old posts must not be imported as open calls.",
+    url: "https://eprocurement.nddc.gov.ng/",
   },
   {
     category: "Foundations and bilateral donors",
-    organizations:
-      "Gates Foundation, Mastercard Foundation, Tony Elumelu Foundation, FCDO, GIZ, KfW, AFD, JICA and Open Society",
+    organizations: "Gates Foundation, Mastercard Foundation, Tony Elumelu Foundation, GIZ, KfW, AFD, JICA and Open Society",
+    status: "Publisher-specific feeds and eligibility rules required",
+    detail: "Gates routes applicants to its RFP and Grand Challenges portals and says most grants go to US tax-exempt organizations. GIZ uses its e-procurement platform, Bund.de and TED for Germany/EU tenders; overseas tenders may sit with country offices. Existing FCDO coverage remains active.",
+    url: "https://www.gatesfoundation.org/about/how-we-work/grant-opportunities",
   },
   {
     category: "Accelerators and venture programmes",
-    organizations:
-      "Google for Startups, Y Combinator, Techstars, Catalyst Fund and similar programmes",
+    organizations: "Google for Startups, Y Combinator, Techstars, Catalyst Fund and similar programmes",
+    status: "Programme-specific deadlines and eligibility required",
+    detail: "YC states that late applications for its Winter 2027 batch are still being considered. The Google for Startups Africa 2026 cohort closed applications on 18 March 2026; Techstars' listed November 2026 cycle deadline has passed. Closed cohorts must not be advertised as open.",
+    url: "https://www.ycombinator.com/apply",
   },
 ];
 
@@ -100,7 +110,7 @@ function errorMessage(error?: string) {
     case "source-not-found":
       return "That source could not be found. Refresh the page and try again.";
     case "access-restricted":
-      return "AfDB currently blocks automated access to its official feeds and portal. Manual import is disabled until an approved access route is available.";
+      return "The configured AfDB project-procurement feed returned HTTP 403. Corporate procurement notices are publicly listed, but a separately validated automated access route is not configured.";
     case "connector-not-available":
       return "A working connector is not available for that source yet.";
     case "import-failed":
@@ -447,8 +457,7 @@ export default async function OpportunitySourcesPage({
         <div className="mb-3">
           <h2 className="text-lg font-bold text-ink">Expansion roadmap</h2>
           <p className="mt-1 text-sm text-stone">
-            Target groups for future connector releases. These are not active
-            integrations yet.
+            Official publisher targets and their current integration readiness. A listing page is not treated as an API or feed until its automated access path has been validated.
           </p>
         </div>
 
@@ -462,9 +471,18 @@ export default async function OpportunitySourcesPage({
               <p className="mt-2 text-sm leading-6 text-stone">
                 {group.organizations}
               </p>
-              <p className="mt-3 text-xs font-medium text-stone">
-                Planned · Connector not yet configured
+              <p className="mt-3 text-xs font-semibold text-stone">
+                {group.status}
               </p>
+              <p className="mt-2 text-xs leading-5 text-stone">{group.detail}</p>
+              <a
+                href={group.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-2 inline-block text-xs font-semibold text-orange hover:underline"
+              >
+                Open official publisher ↗
+              </a>
             </article>
           ))}
         </div>
@@ -475,8 +493,9 @@ export default async function OpportunitySourcesPage({
         <ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-6 text-stone">
           <li>Every imported opportunity retains its official source URL and identity.</li>
           <li>Duplicate notices are tracked instead of inserted again.</li>
-          <li>New discoveries remain drafts until an administrator verifies and publishes them.</li>
-          <li>Unknown eligibility, amounts and deadlines are never invented.</li>
+          <li>Every new discovery remains a draft until an administrator verifies the notice and records eligibility evidence from the official publisher.</li>
+          <li>Source verification and applicant eligibility are separate checks; a source URL alone does not make an applicant eligible.</li>
+          <li>Unknown eligibility, amounts and deadlines are never invented. Closed or withdrawn notices are not advertised as open.</li>
         </ul>
       </section>
     </div>

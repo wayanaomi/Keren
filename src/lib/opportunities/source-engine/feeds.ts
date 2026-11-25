@@ -246,8 +246,8 @@ export function normalizeFeedEntries(
         : "";
 
       const rawLink = getFeedEntryLink(entry.link);
-      const externalId =
-        firstText(entry, ["guid", "id"]) ?? rawLink;
+      const publisherReference = firstText(entry, ["guid", "id"]);
+      const externalId = publisherReference ?? rawLink;
 
       if (!title || !rawLink || !externalId) {
         skipped += 1;
@@ -308,6 +308,7 @@ export function normalizeFeedEntries(
 
       items.push({
         externalId: safeExternalId,
+        identityReference: publisherReference,
         sourceUrl,
         canonicalUrl,
         title,

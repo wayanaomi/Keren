@@ -49,9 +49,9 @@ export default async function AdminOpportunitiesPage({
       </div>
 
       <p className="mb-4 text-sm text-stone">
-        Grants.gov and TED imports are saved as drafts. Verify the official source,
-        bidder eligibility and submission requirements before publication. TED buyer
-        country is not treated as supplier eligibility.
+        Source imports are saved as drafts. Verify the official notice separately from
+        eligibility. Imported records cannot be published until an administrator records
+        official eligibility evidence and confirms the applicant category is eligible.
       </p>
 
       {params.importError ? (
@@ -82,6 +82,7 @@ export default async function AdminOpportunitiesPage({
                 <th className="p-3">Deadline</th>
                 <th className="p-3">Status</th>
                 <th className="p-3">Verification</th>
+                <th className="p-3">Eligibility</th>
                 <th className="p-3" />
               </tr>
             </thead>
@@ -94,6 +95,14 @@ export default async function AdminOpportunitiesPage({
                   <td className="p-3 text-stone">{o.status}</td>
                   <td className="p-3">
                     <VerificationBadge status={o.verificationStatus} />
+                  </td>
+                  <td className="p-3 text-xs text-stone">
+                    <div className="font-semibold">{o.eligibilityStatus.replaceAll("_", " ")}</div>
+                    {o.eligibilityReviewedAt ? (
+                      <div className="mt-1">Reviewed {formatDate(o.eligibilityReviewedAt)}</div>
+                    ) : (
+                      <div className="mt-1">No eligibility review recorded</div>
+                    )}
                   </td>
                   <td className="p-3">
                     <div className="flex justify-end gap-2">
