@@ -138,6 +138,43 @@ export function OpportunityForm({
         <Field label="Eligibility requirements (one per line)">
           <Textarea name="eligibilityRequirements" defaultValue={opportunity?.eligibilityRequirements.join("\n") ?? ""} />
         </Field>
+        <div className="border-t border-line pt-4">
+          <h3 className="text-sm font-semibold text-ink">Eligibility evidence review</h3>
+          <p className="mt-1 text-xs leading-5 text-stone">
+            Imported opportunities remain unpublished until an administrator records
+            evidence from the official notice and confirms applicant eligibility.
+            Do not select Verified eligible when the official notice is ambiguous.
+          </p>
+        </div>
+        <Field label="Eligibility assessment">
+          <Select name="eligibilityStatus" defaultValue={opportunity?.eligibilityStatus ?? "UNKNOWN"}>
+            <option value="UNKNOWN">Unknown</option>
+            <option value="NEEDS_REVIEW">Needs review</option>
+            <option value="VERIFIED_ELIGIBLE">Verified eligible</option>
+            <option value="VERIFIED_INELIGIBLE">Verified ineligible</option>
+          </Select>
+        </Field>
+        <Field label="Official eligibility evidence (quote or concise finding)">
+          <Textarea
+            name="eligibilityEvidence"
+            defaultValue={opportunity?.eligibilityEvidence ?? ""}
+            className="min-h-24"
+            placeholder="Record the exact applicant, country, organisation or programme requirements stated by the publisher."
+          />
+        </Field>
+        <Field label="Official evidence URL">
+          <Input
+            name="eligibilityEvidenceUrl"
+            type="url"
+            defaultValue={opportunity?.eligibilityEvidenceUrl ?? ""}
+            placeholder="https://official-publisher.example/notice"
+          />
+        </Field>
+        {opportunity?.eligibilityReviewedAt ? (
+          <p className="text-xs text-stone">
+            Last eligibility review: {new Date(opportunity.eligibilityReviewedAt).toLocaleString()}
+          </p>
+        ) : null}
       </Card>
 
       <Card className="space-y-4 p-5">

@@ -235,6 +235,13 @@ enum VerificationStatus {
   EXPIRED
 }
 
+enum OpportunityEligibilityStatus {
+  UNKNOWN
+  NEEDS_REVIEW
+  VERIFIED_ELIGIBLE
+  VERIFIED_INELIGIBLE
+}
+
 enum OpportunityStatus {
   DRAFT
   PUBLISHED
@@ -295,6 +302,14 @@ model Opportunity {
   verificationStatus VerificationStatus @default(NEEDS_VERIFICATION)
   lastVerifiedAt     DateTime?
 
+  // Eligibility is a separate, evidence-backed review from source verification.
+  // Imported notices start in NEEDS_REVIEW; an unknown rule is never inferred.
+  eligibilityStatus       OpportunityEligibilityStatus @default(UNKNOWN)
+  eligibilityEvidence     String? @db.Text
+  eligibilityEvidenceUrl  String?
+  eligibilityReviewedAt   DateTime?
+  eligibilityReviewedById String?
+
   createdById String?
   questions   ApplicationQuestionTemplate[]
 
@@ -311,6 +326,7 @@ model Opportunity {
   @@index([country])
   @@index([sector])
   @@index([status, verificationStatus])
+  @@index([eligibilityStatus, status])
 }
 
 // Questions a funder asks on their application — reusable per opportunity
@@ -734,6 +750,7 @@ model OpportunitySourceItem {
   canonicalUrl String?
   title        String
   contentHash  String?
+  identityHash String?
 
   sourceStatus      String?
   sourcePublishedAt DateTime?
@@ -752,5 +769,6 @@ model OpportunitySourceItem {
   @@index([opportunityId])
   @@index([canonicalUrl])
   @@index([contentHash])
+  @@index([identityHash])
   @@index([sourceUpdatedAt])
 }

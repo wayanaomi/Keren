@@ -129,7 +129,9 @@ describe("runOpportunitySourceImport", () => {
     const result = await runOpportunitySourceImport({
       source,
       adminUserId: "admin-1",
-      fetchItems: async () => mockFetchedItems([makeCandidate()]),
+      fetchItems: async () => mockFetchedItems([
+        makeCandidate({ identityReference: "official-notice-123" }),
+      ]),
     });
 
     expect(result).toMatchObject({
@@ -149,6 +151,8 @@ describe("runOpportunitySourceImport", () => {
         sourceUrl: "https://foundation.example/opportunities/123",
         status: "DRAFT",
         verificationStatus: "NEEDS_VERIFICATION",
+        eligibilityStatus: "NEEDS_REVIEW",
+        eligibilityEvidence: null,
         createdById: "admin-1",
       }),
       select: { id: true },
@@ -159,6 +163,7 @@ describe("runOpportunitySourceImport", () => {
         sourceId: "source-1",
         opportunityId: "opportunity-1",
         externalId: "notice-123",
+        identityHash: expect.any(String),
       }),
     });
 
@@ -222,6 +227,59 @@ describe("runOpportunitySourceImport", () => {
         opportunityId: "existing-opportunity",
         externalId: "different-source-id",
       }),
+    });
+  });
+
+
+  it("links a dated cross-source identity duplicate even when URLs differ", async () => {
+    const first = makeCandidate({
+      opportunity: {
+        title: "Rural Roads Rehabilitation",
+        funder: "NDDC",
+        type: "TENDER",
+        description: "Official NDDC tender notice.",
+        openingDate: new Date("2026-11-14T00:00:00.000Z"),
+        deadline: new Date("2026-12-12T23:59:59.999Z"),
+      },
+    });
+    const second = makeCandidate({
+      externalId: "feed-duplicate-2",
+      sourceUrl: "https://www.nddc.gov.ng/procurement/TND-2026-000015",
+      canonicalUrl: "https://www.nddc.gov.ng/procurement/TND-2026-000015",
+      opportunity: {
+        ...first.opportunity,
+        description: "A differently formatted official tender notice.",
+      },
+    });
+
+    mocks.itemFindFirst.mockResolvedValue({
+      opportunityId: "canonical-opportunity",
+    });
+    mocks.opportunityFindUnique.mockResolvedValue({ id: "canonical-opportunity" });
+
+    const result = await runOpportunitySourceImport({
+      source: { ...source, key: "nddc-second-source", name: "NDDC mirror" },
+      adminUserId: "admin-1",
+      fetchItems: async () => mockFetchedItems([second]),
+    });
+
+    expect(result.duplicates).toBe(1);
+    expect(mocks.opportunityCreate).not.toHaveBeenCalled();
+    expect(mocks.itemCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        opportunityId: "canonical-opportunity",
+        identityHash: expect.any(String),
+      }),
+    });
+    expect(mocks.itemFindFirst).toHaveBeenCalledWith({
+      where: {
+        opportunityId: { not: null },
+        OR: expect.arrayContaining([
+          { identityHash: expect.any(String) },
+        ]),
+      },
+      orderBy: { firstSeenAt: "asc" },
+      select: { opportunityId: true },
     });
   });
 

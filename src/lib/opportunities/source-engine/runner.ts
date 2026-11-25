@@ -7,6 +7,7 @@ import type {
 import {
   canonicalizeSourceUrl,
   createOpportunityContentHash,
+  createOpportunityIdentityHash,
 } from "./identity";
 
 interface RunOpportunitySourceImportInput {
@@ -138,6 +139,14 @@ export async function runOpportunitySourceImport(
           title,
           String(candidate.opportunity.description ?? ""),
         );
+      const identityHash = createOpportunityIdentityHash({
+        title,
+        funder: String(candidate.opportunity.funder ?? source.organization),
+        type: String(candidate.opportunity.type ?? source.opportunityType ?? "OTHER"),
+        openingDate: candidate.opportunity.openingDate as Date | string | null | undefined,
+        deadline: candidate.opportunity.deadline as Date | string | null | undefined,
+        reference: candidate.identityReference,
+      });
 
       const now = new Date();
       const rawDeadline = candidate.opportunity.deadline;
@@ -172,6 +181,9 @@ export async function runOpportunitySourceImport(
             data: {
               lastSeenAt: now,
               title,
+              canonicalUrl,
+              contentHash,
+              identityHash,
               sourceStatus: candidate.sourceStatus ?? undefined,
               sourceUpdatedAt: candidate.sourceUpdatedAt ?? undefined,
               ...(candidate.metadata !== undefined
@@ -183,13 +195,17 @@ export async function runOpportunitySourceImport(
           return "duplicate" as const;
         }
 
+        const identityAlternatives = [
+          { sourceUrl: candidate.sourceUrl },
+          { canonicalUrl },
+          ...(identityHash ? [{ identityHash }] : []),
+        ];
+
         const matchingItem =
           await tx.opportunitySourceItem.findFirst({
             where: {
-              OR: [
-                { sourceUrl: candidate.sourceUrl },
-                { canonicalUrl },
-              ],
+              opportunityId: { not: null },
+              OR: identityAlternatives,
             },
             orderBy: { firstSeenAt: "asc" },
             select: { opportunityId: true },
@@ -215,6 +231,7 @@ export async function runOpportunitySourceImport(
               canonicalUrl,
               title,
               contentHash,
+              identityHash,
               sourceStatus: candidate.sourceStatus ?? null,
               sourcePublishedAt: candidate.sourcePublishedAt ?? null,
               sourceUpdatedAt: candidate.sourceUpdatedAt ?? null,
@@ -239,6 +256,11 @@ export async function runOpportunitySourceImport(
             verificationStatus: hasExpiredDeadline
               ? "EXPIRED"
               : "NEEDS_VERIFICATION",
+            eligibilityStatus: "NEEDS_REVIEW",
+            eligibilityEvidence: null,
+            eligibilityEvidenceUrl: null,
+            eligibilityReviewedAt: null,
+            eligibilityReviewedById: null,
             createdById: adminUserId,
           },
           select: { id: true },
@@ -253,6 +275,7 @@ export async function runOpportunitySourceImport(
             canonicalUrl,
             title,
             contentHash,
+            identityHash,
             sourceStatus: candidate.sourceStatus ?? null,
             sourcePublishedAt: candidate.sourcePublishedAt ?? null,
             sourceUpdatedAt: candidate.sourceUpdatedAt ?? null,

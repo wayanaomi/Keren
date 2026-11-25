@@ -451,6 +451,7 @@ export async function importGrantsGovOpportunities(
 
           items.push({
             externalId: String(hit.id),
+            identityReference: String(hit.id),
             sourceUrl: opportunity.sourceUrl,
             canonicalUrl: opportunity.sourceUrl,
             title: opportunity.title,

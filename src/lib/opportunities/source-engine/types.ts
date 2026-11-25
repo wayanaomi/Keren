@@ -37,6 +37,7 @@ export interface NormalizedOpportunitySourceItem {
   sourcePublishedAt?: Date | null;
   sourceUpdatedAt?: Date | null;
   contentHash?: string | null;
+  identityReference?: string | null;
   metadata?: Prisma.InputJsonValue;
   opportunity: OpportunityDraft;
 }

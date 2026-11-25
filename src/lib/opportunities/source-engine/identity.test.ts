@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   canonicalizeSourceUrl,
   createOpportunityContentHash,
+  createOpportunityIdentityHash,
 } from "./identity";
 
 describe("canonicalizeSourceUrl", () => {
@@ -39,5 +40,64 @@ describe("createOpportunityContentHash", () => {
     ).not.toBe(
       createOpportunityContentHash("Business Grant", "Apply tomorrow"),
     );
+  });
+});
+
+
+describe("createOpportunityIdentityHash", () => {
+  it("matches the same dated notice across source URLs", () => {
+    const first = createOpportunityIdentityHash({
+      title: "  Rural Roads Rehabilitation ",
+      funder: "NDDC",
+      type: "TENDER",
+      openingDate: "2026-11-14T00:00:00.000Z",
+      deadline: "2026-12-12T23:59:59.999Z",
+    });
+    const second = createOpportunityIdentityHash({
+      title: "rural roads rehabilitation",
+      funder: "NDDC",
+      type: "TENDER",
+      openingDate: "2026-11-14T08:00:00.000Z",
+      deadline: "2026-12-12T12:00:00.000Z",
+    });
+
+    expect(first).not.toBeNull();
+    expect(second).toBe(first);
+  });
+
+  it("uses a publisher-scoped official reference when available", () => {
+    expect(createOpportunityIdentityHash({
+      title: "Media Monitoring Procurement",
+      funder: "African Development Bank",
+      type: "RFP",
+      reference: "ADB/RFP/TCGS/2026/0243",
+    })).toBe(createOpportunityIdentityHash({
+      title: "Different translated notice title",
+      funder: "African Development Bank",
+      type: "RFP",
+      reference: "ADB/RFP/TCGS/2026/0243",
+    }));
+  });
+
+  it("does not fingerprint undated notices without a reference", () => {
+    expect(createOpportunityIdentityHash({
+      title: "General business support",
+      funder: "Some Foundation",
+      type: "GRANT",
+    })).toBeNull();
+  });
+
+  it("does not merge notices with different deadlines", () => {
+    expect(createOpportunityIdentityHash({
+      title: "Small Business Grant",
+      funder: "Example Foundation",
+      type: "GRANT",
+      deadline: "2026-12-01",
+    })).not.toBe(createOpportunityIdentityHash({
+      title: "Small Business Grant",
+      funder: "Example Foundation",
+      type: "GRANT",
+      deadline: "2027-01-01",
+    }));
   });
 });

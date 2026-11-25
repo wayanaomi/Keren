@@ -8,6 +8,10 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { requirePlatformAdmin } from "@/lib/auth/session";
 import { opportunitySchema } from "@/lib/validators/opportunity";
+import {
+  getImportedOpportunityPublicationError,
+  isOfficialEvidenceUrl,
+} from "@/lib/opportunities/source-engine/review";
 
 type QuestionInput = {
   id: string;
@@ -48,6 +52,59 @@ function parseOpportunityForm(formData: FormData) {
     openingDate: raw.openingDate || undefined,
     deadline: raw.deadline || undefined,
   });
+}
+
+
+const ELIGIBILITY_STATUSES = new Set([
+  "UNKNOWN",
+  "NEEDS_REVIEW",
+  "VERIFIED_ELIGIBLE",
+  "VERIFIED_INELIGIBLE",
+]);
+
+function parseEligibilityReview(formData: FormData, adminUserId: string) {
+  const rawStatus = formData.get("eligibilityStatus");
+  const rawEvidence = formData.get("eligibilityEvidence");
+  const rawEvidenceUrl = formData.get("eligibilityEvidenceUrl");
+
+  const status = typeof rawStatus === "string" ? rawStatus : "UNKNOWN";
+  const evidence = typeof rawEvidence === "string" ? rawEvidence.trim().slice(0, 10000) : "";
+  const evidenceUrl = typeof rawEvidenceUrl === "string" ? rawEvidenceUrl.trim() : "";
+
+  if (!ELIGIBILITY_STATUSES.has(status)) {
+    return { error: "Select a valid eligibility assessment." } as const;
+  }
+
+  if (status === "VERIFIED_ELIGIBLE" || status === "VERIFIED_INELIGIBLE") {
+    if (!evidence || !evidenceUrl) {
+      return {
+        error: "A verified eligibility decision requires written evidence and its official source URL.",
+      } as const;
+    }
+  }
+
+  if (evidenceUrl) {
+    try {
+      const parsedUrl = new URL(evidenceUrl);
+      if (parsedUrl.protocol !== "https:" || parsedUrl.username || parsedUrl.password) {
+        return { error: "Eligibility evidence must use a public HTTPS URL." } as const;
+      }
+    } catch {
+      return { error: "Enter a valid official eligibility evidence URL." } as const;
+    }
+  }
+
+  const isReviewed = status === "VERIFIED_ELIGIBLE" || status === "VERIFIED_INELIGIBLE";
+
+  return {
+    data: {
+      eligibilityStatus: status as "UNKNOWN" | "NEEDS_REVIEW" | "VERIFIED_ELIGIBLE" | "VERIFIED_INELIGIBLE",
+      eligibilityEvidence: evidence || null,
+      eligibilityEvidenceUrl: evidenceUrl || null,
+      eligibilityReviewedAt: isReviewed ? new Date() : null,
+      eligibilityReviewedById: isReviewed ? adminUserId : null,
+    },
+  } as const;
 }
 
 function parseQuestionTemplates(
@@ -299,10 +356,13 @@ export async function createOpportunityAction(
 
   const questionResult = parseQuestionTemplates(formData);
   if (questionResult.error) return { error: questionResult.error };
+  const eligibilityReview = parseEligibilityReview(formData, admin.id);
+  if ("error" in eligibilityReview) return { error: eligibilityReview.error };
 
   const opportunity = await db.opportunity.create({
     data: {
       ...parsed.data,
+      ...eligibilityReview.data,
       createdById: admin.id,
       questions: {
         create: (questionResult.questions ?? []).map((question) => ({
@@ -324,8 +384,7 @@ export async function updateOpportunityAction(
   _prev: AdminActionState,
   formData: FormData
 ): Promise<AdminActionState> {
-  await requirePlatformAdmin();
-
+  const admin = await requirePlatformAdmin();
   const parsed = parseOpportunityForm(formData);
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Check the form and try again." };
@@ -333,11 +392,78 @@ export async function updateOpportunityAction(
 
   const questionResult = parseQuestionTemplates(formData);
   if (questionResult.error) return { error: questionResult.error };
+  const eligibilityReview = parseEligibilityReview(formData, admin.id);
+  if ("error" in eligibilityReview) return { error: eligibilityReview.error };
 
   const questions = questionResult.questions ?? [];
 
   try {
     await db.$transaction(async (tx) => {
+      const existingOpportunity = await tx.opportunity.findUnique({
+        where: { id: opportunityId },
+        select: {
+          verificationStatus: true,
+          deadline: true,
+          sourceUrl: true,
+          eligibilityStatus: true,
+          eligibilityEvidence: true,
+          eligibilityEvidenceUrl: true,
+          eligibilityReviewedAt: true,
+          eligibilityReviewedById: true,
+          sourceItems: { select: { sourceUrl: true } },
+        },
+      });
+
+      if (!existingOpportunity) {
+        throw new Error("This opportunity no longer exists. Refresh and try again.");
+      }
+
+      const isEligibilityDecision =
+        eligibilityReview.data.eligibilityStatus === "VERIFIED_ELIGIBLE" ||
+        eligibilityReview.data.eligibilityStatus === "VERIFIED_INELIGIBLE";
+      const eligibilityReviewChanged =
+        existingOpportunity.eligibilityStatus !== eligibilityReview.data.eligibilityStatus ||
+        existingOpportunity.eligibilityEvidence !== eligibilityReview.data.eligibilityEvidence ||
+        existingOpportunity.eligibilityEvidenceUrl !== eligibilityReview.data.eligibilityEvidenceUrl;
+      const eligibilityReviewData = {
+        ...eligibilityReview.data,
+        eligibilityReviewedAt: isEligibilityDecision
+          ? eligibilityReviewChanged
+            ? new Date()
+            : existingOpportunity.eligibilityReviewedAt ?? new Date()
+          : null,
+        eligibilityReviewedById: isEligibilityDecision
+          ? eligibilityReviewChanged
+            ? admin.id
+            : existingOpportunity.eligibilityReviewedById ?? admin.id
+          : null,
+      };
+
+      const isSourceBacked = existingOpportunity.sourceItems.length > 0;
+      const officialUrls = [
+        existingOpportunity.sourceUrl,
+        ...existingOpportunity.sourceItems.map((item) => item.sourceUrl),
+      ];
+      if (
+        isSourceBacked &&
+        isEligibilityDecision &&
+        eligibilityReviewData.eligibilityEvidenceUrl &&
+        !isOfficialEvidenceUrl(eligibilityReviewData.eligibilityEvidenceUrl, officialUrls)
+      ) {
+        throw new Error("Eligibility evidence must link to the same official publisher host as the imported notice.");
+      }
+
+      if (parsed.data.status === "PUBLISHED" && isSourceBacked) {
+        const finalDeadline = parsed.data.deadline ?? existingOpportunity.deadline;
+        const reviewError = getImportedOpportunityPublicationError({
+          verificationStatus: existingOpportunity.verificationStatus,
+          eligibilityStatus: eligibilityReviewData.eligibilityStatus,
+          eligibilityEvidenceUrl: eligibilityReviewData.eligibilityEvidenceUrl,
+          officialUrls,
+          deadline: finalDeadline,
+        });
+        if (reviewError) throw new Error(reviewError);
+      }
       const existingQuestions = await tx.applicationQuestionTemplate.findMany({
         where: { opportunityId },
         select: { id: true },
@@ -352,7 +478,10 @@ export async function updateOpportunityAction(
 
       await tx.opportunity.update({
         where: { id: opportunityId },
-        data: parsed.data,
+        data: {
+          ...parsed.data,
+          ...eligibilityReviewData,
+        },
       });
 
       const retainedIds = submittedIds;
@@ -421,6 +550,7 @@ export async function verifyOpportunityAction(opportunityId: string) {
     data: { verificationStatus: "VERIFIED", lastVerifiedAt: new Date() },
   });
   revalidatePath("/admin/opportunities");
+  revalidatePath("/admin/opportunities/sources");
 }
 
 export async function markExpiredAction(opportunityId: string) {
