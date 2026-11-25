@@ -16,6 +16,20 @@ const afdbSource: OpportunitySourceDefinition = {
   listingUrl: "https://www.afdb.org/en/projects-and-operations/procurement.xml",
 };
 
+const ncairSource: OpportunitySourceDefinition = {
+  key: "ncair-opportunities",
+  name: "NCAIR — Official Opportunities",
+  organization: "National Centre for Artificial Intelligence and Robotics (NCAIR), NITDA",
+  category: "Nigerian AI, technology and innovation opportunities",
+  method: "RSS",
+  opportunityType: "OTHER",
+  websiteUrl: "https://ncair.nitda.gov.ng/",
+  listingUrl: "https://ncair.nitda.gov.ng/opportunities/",
+  feedUrl: "https://ncair.nitda.gov.ng/feed/",
+  feedCategoryAllowlist: ["jobs", "grants", "scholarships"],
+  maxFeedPublicationAgeDays: 180,
+};
+
 const fcdoSource: OpportunitySourceDefinition = {
   key: "fcdo-international-development-funding",
   name: "FCDO — International Development Funding",
@@ -151,6 +165,109 @@ describe("normalizeFeedEntries", () => {
       new Date("2026-11-18T10:00:00Z"),
     );
     expect(result.items[0].identityReference).toBe("tag:gov.uk,2026:fund-123");
+  });
+
+  it("imports recent NCAIR grant posts as draft GRANT opportunities", () => {
+    const xml = `<rss><channel><item>
+      <title>Call for Proposals: AI for Public Health</title>
+      <link>https://ncair.nitda.gov.ng/ai-public-health-call/</link>
+      <guid>https://ncair.nitda.gov.ng/?p=902</guid>
+      <category domain="category" nicename="grants">Grants</category>
+      <description><![CDATA[<p>Official call for eligible Nigerian AI teams.</p>]]></description>
+      <pubDate>Sat, 01 Aug 2026 10:00:00 GMT</pubDate>
+    </item></channel></rss>`;
+
+    const entries = parseFeedEntries(xml, "RSS");
+    const result = normalizeFeedEntries(
+      entries,
+      ncairSource,
+      new Date("2026-11-25T12:00:00.000Z"),
+    );
+
+    expect(result.skipped).toBe(0);
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].opportunity).toMatchObject({
+      type: "GRANT",
+      status: "DRAFT",
+      verificationStatus: "NEEDS_VERIFICATION",
+      deadline: null,
+      eligibleCountries: [],
+    });
+    expect(result.items[0].metadata).toMatchObject({
+      feedCategories: ["grants"],
+    });
+  });
+
+  it("skips NCAIR posts outside the publisher's opportunity categories", () => {
+    const xml = `<rss><channel><item>
+      <title>AI is Here to Stay: Sink or Swim</title>
+      <link>https://ncair.nitda.gov.ng/ai-is-here/</link>
+      <guid>ncair-news-1</guid>
+      <category domain="category">News</category>
+      <pubDate>Sat, 01 Aug 2026 10:00:00 GMT</pubDate>
+    </item></channel></rss>`;
+
+    const entries = parseFeedEntries(xml, "RSS");
+    const result = normalizeFeedEntries(
+      entries,
+      ncairSource,
+      new Date("2026-11-25T12:00:00.000Z"),
+    );
+
+    expect(result.items).toHaveLength(0);
+    expect(result.skipped).toBe(1);
+  });
+
+  it("skips stale and undated NCAIR opportunity posts", () => {
+    const staleXml = `<rss><channel><item>
+      <title>Historical AI Grant Call</title>
+      <link>https://ncair.nitda.gov.ng/historical-grant/</link>
+      <guid>ncair-old-1</guid>
+      <category domain="category">Grants</category>
+      <pubDate>Thu, 22 Jan 2026 10:00:00 GMT</pubDate>
+    </item></channel></rss>`;
+    const undatedXml = `<rss><channel><item>
+      <title>Undated Scholarship Call</title>
+      <link>https://ncair.nitda.gov.ng/undated-scholarship/</link>
+      <guid>ncair-undated-1</guid>
+      <category domain="category">Scholarships</category>
+    </item></channel></rss>`;
+
+    const now = new Date("2026-11-25T12:00:00.000Z");
+    const stale = normalizeFeedEntries(
+      parseFeedEntries(staleXml, "RSS"),
+      ncairSource,
+      now,
+    );
+    const undated = normalizeFeedEntries(
+      parseFeedEntries(undatedXml, "RSS"),
+      ncairSource,
+      now,
+    );
+
+    expect(stale.items).toHaveLength(0);
+    expect(stale.skipped).toBe(1);
+    expect(undated.items).toHaveLength(0);
+    expect(undated.skipped).toBe(1);
+  });
+
+  it("keeps NCAIR scholarships in OTHER instead of misclassifying them as fellowships", () => {
+    const xml = `<rss><channel><item>
+      <title>AI Research Scholarship</title>
+      <link>https://ncair.nitda.gov.ng/ai-scholarship/</link>
+      <guid>ncair-scholarship-1</guid>
+      <category domain="category">Scholarships</category>
+      <pubDate>Sat, 01 Aug 2026 10:00:00 GMT</pubDate>
+    </item></channel></rss>`;
+
+    const result = normalizeFeedEntries(
+      parseFeedEntries(xml, "RSS"),
+      ncairSource,
+      new Date("2026-11-25T12:00:00.000Z"),
+    );
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].opportunity.type).toBe("OTHER");
   });
 
   it("skips entries with missing titles or usable links", () => {

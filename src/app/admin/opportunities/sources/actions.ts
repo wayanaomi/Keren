@@ -97,6 +97,10 @@ export async function runOpportunitySourceAction(
         result = await importFeedOpportunities(admin.id, sourceKey);
         break;
 
+      case "ncair-opportunities":
+        result = await importFeedOpportunities(admin.id, sourceKey);
+        break;
+
       default:
         redirect(`${SOURCES_PATH}?error=connector-not-available`);
     }

@@ -21,6 +21,10 @@ export interface OpportunitySourceDefinition {
   feedUrl?: string;
   defaultOpportunityType?: OpportunityType;
   maxItemsPerRun?: number;
+  // Optional publisher-specific filters. Categories must match the publisher's
+  // own feed taxonomy; old or undated entries are skipped when an age limit is set.
+  feedCategoryAllowlist?: string[];
+  maxFeedPublicationAgeDays?: number;
 }
 
 export type OpportunityDraft = Omit<

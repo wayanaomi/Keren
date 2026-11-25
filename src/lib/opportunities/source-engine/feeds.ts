@@ -187,6 +187,84 @@ function parseFeedDate(value: string | null): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+function normalizeFeedCategory(value: string): string {
+  return value
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+export function getFeedEntryCategories(entry: XmlRecord): string[] {
+  return Array.from(
+    new Set(
+      asArray(entry.category)
+        .map((value) => {
+          if (typeof value === "string" || typeof value === "number") {
+            return String(value).trim();
+          }
+          const record = asRecord(value);
+          return (
+            textValue(record["@_term"]) ??
+            textValue(record["#text"]) ??
+            textValue(record["@_label"]) ??
+            ""
+          );
+        })
+        .map(normalizeFeedCategory)
+        .filter(Boolean),
+    ),
+  );
+}
+
+export function isFeedEntryWithinConfiguredScope(
+  entry: XmlRecord,
+  source: OpportunitySourceDefinition,
+  publishedAt: Date | null,
+  now: Date = new Date(),
+): boolean {
+  if (source.feedCategoryAllowlist?.length) {
+    const allowed = new Set(
+      source.feedCategoryAllowlist.map(normalizeFeedCategory),
+    );
+    const categories = getFeedEntryCategories(entry);
+    if (!categories.some((category) => allowed.has(category))) return false;
+  }
+
+  if (source.maxFeedPublicationAgeDays !== undefined) {
+    const maxAgeDays = source.maxFeedPublicationAgeDays;
+    if (!Number.isFinite(maxAgeDays) || maxAgeDays < 1 || !publishedAt) {
+      return false;
+    }
+
+    const ageMs = now.getTime() - publishedAt.getTime();
+    const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
+
+    // Skip future-dated feed entries instead of letting malformed publisher
+    // timestamps make a notice appear newer than it is.
+    if (ageMs < -24 * 60 * 60 * 1000 || ageMs > maxAgeMs) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function getFeedOpportunityType(
+  source: OpportunitySourceDefinition,
+  categories: string[],
+): NonNullable<OpportunitySourceDefinition["opportunityType"]> {
+  if (categories.includes("grants")) return "GRANT";
+  if (categories.includes("fellowships")) return "FELLOWSHIP";
+  if (categories.includes("competitions")) return "COMPETITION";
+  if (categories.includes("tenders") || categories.includes("procurement")) {
+    return "TENDER";
+  }
+  return source.opportunityType ?? "OTHER";
+}
+
 export function parseFeedEntries(
   xml: string,
   method: "RSS" | "ATOM",
@@ -231,6 +309,7 @@ export function parseFeedEntries(
 export function normalizeFeedEntries(
   entries: XmlRecord[],
   source: OpportunitySourceDefinition,
+  now: Date = new Date(),
 ): {
   items: NormalizedOpportunitySourceItem[];
   skipped: number;
@@ -276,6 +355,12 @@ export function normalizeFeedEntries(
 
       const publishedAt = parseFeedDate(publishedValue);
       const updatedAt = parseFeedDate(updatedValue);
+      const categories = getFeedEntryCategories(entry);
+
+      if (!isFeedEntryWithinConfiguredScope(entry, source, publishedAt, now)) {
+        skipped += 1;
+        continue;
+      }
 
       const contentValue = firstText(entry, [
         "content:encoded",
@@ -318,11 +403,12 @@ export function normalizeFeedEntries(
         metadata: {
           feedMethod: source.method,
           feedEntryId: safeExternalId,
+          feedCategories: categories,
         },
         opportunity: {
           title,
           funder: source.organization,
-          type: source.opportunityType ?? "OTHER",
+          type: getFeedOpportunityType(source, categories),
           description,
 
           country: null,
@@ -524,7 +610,7 @@ export async function importFeedOpportunities(
     adminUserId,
     fetchItems: async () => {
       const response = await fetchWithRetry(
-        source.listingUrl,
+        source.feedUrl?.trim() || source.listingUrl,
         {
           method: "GET",
           headers: {
