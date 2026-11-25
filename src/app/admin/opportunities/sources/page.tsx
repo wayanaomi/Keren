@@ -28,16 +28,16 @@ const roadmap = [
   {
     category: "UN agencies",
     organizations: "UNDP, UNICEF, WHO, WFP, UNOPS and other UN entities",
-    status: "Credentials and scope validation required",
-    detail: "UNGM documents an OAuth-protected Notices API. Its documented Search Notices endpoint returns notices created by the authorized agency; it must not be represented as a global UN opportunity feed without broader access confirmation.",
+    status: "Awaiting authorized UNGM API access",
+    detail: "UNGM documents GET /API/Notices using an OAuth authorization-code user token; the endpoint returns notices created by the authorized agency. UNGM's client-credentials grant does not include GET /API/Notices. KEREN will not use a vendor or client token to impersonate an agency or claim global access. An authorized agency user and Secretariat-approved client are required.",
     url: "https://developer.ungm.org/Article/SearchNotices",
   },
   {
     category: "Nigeria public institutions",
-    organizations: "NDDC, BPP/NOCOPO, TETFund, NITDA/NCAIR, NNPC, NUPRC and other public agencies",
-    status: "Public listings identified; ingestion path under validation",
-    detail: "NDDC publishes public tender headlines and deadlines, but states that full details and bidding require a vendor profile. BPP/NOCOPO data is also published as OCDS snapshots; its registry documents periodic retrieval and data-quality caveats, so it is not treated as a live tender feed. NCAIR's opportunity page mixes current and historical third-party listings, so old posts must not be imported as open calls.",
-    url: "https://eprocurement.nddc.gov.ng/",
+    organizations: "NDDC, BPP/NOCOPO, TETFund, NITDA/NCAIR and other public agencies",
+    status: "NCAIR RSS connector implemented; other channels under validation",
+    detail: "NCAIR's official RSS feed is registered with category filtering and a 180-day publication window; every accepted record remains a draft. NDDC currently reports no active tender notices and requires vendor registration for full tender details. The verified TETFund NRF 2025 call closed on 28 August 2025; no open 2026 NRF call has been confirmed. BPP/NOCOPO's open-data mirror is a periodic OCDS snapshot with documented date-quality limitations, not a real-time tender API.",
+    url: "https://ncair.nitda.gov.ng/opportunities/",
   },
   {
     category: "Foundations and bilateral donors",
@@ -68,6 +68,8 @@ function sourceDisplayName(source?: string) {
       return "Grants.gov";
     case "fcdo-international-development-funding":
       return "FCDO";
+    case "ncair-opportunities":
+      return "NCAIR";
     case "afdb-project-procurement":
       return "African Development Bank";
     default:

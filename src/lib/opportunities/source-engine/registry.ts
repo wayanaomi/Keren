@@ -50,6 +50,28 @@ export const OPPORTUNITY_SOURCE_REGISTRY: OpportunitySourceDefinition[] = [
       "https://www.gov.uk/international-development-funding.atom?fund_state%5B%5D=open",
     pollIntervalMinutes: 1440,
   },
+  {
+    key: "ncair-opportunities",
+    name: "NCAIR — Official Opportunities",
+    organization: "National Centre for Artificial Intelligence and Robotics (NCAIR), NITDA",
+    category: "Nigerian AI, technology and innovation opportunities",
+    method: "RSS",
+    opportunityType: "OTHER",
+    websiteUrl: "https://ncair.nitda.gov.ng/",
+    listingUrl: "https://ncair.nitda.gov.ng/opportunities/",
+    feedUrl: "https://ncair.nitda.gov.ng/feed/",
+    // The official Opportunities page uses Jobs, Grants and Scholarships
+    // categories. Do not ingest general news or learning articles as funding.
+    feedCategoryAllowlist: [
+      "jobs",
+      "grants",
+      "scholarships",
+    ],
+    // Older articles on the publisher page include closed 2025 programmes.
+    // Require a recent publication date and retain all accepted records as drafts.
+    maxFeedPublicationAgeDays: 180,
+    pollIntervalMinutes: 1440,
+  },
 ];
 
 export function getOpportunitySourceDefinition(
