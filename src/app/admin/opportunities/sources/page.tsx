@@ -26,32 +26,39 @@ type SearchParams = {
 
 const roadmap = [
   {
-    category: "UN agencies",
-    organizations: "UNDP, UNICEF, WHO, WFP, UNOPS and other UN entities",
-    status: "Awaiting authorized UNGM API access",
-    detail: "UNGM documents GET /API/Notices using an OAuth authorization-code user token; the endpoint returns notices created by the authorized agency. UNGM's client-credentials grant does not include GET /API/Notices. KEREN will not use a vendor or client token to impersonate an agency or claim global access. An authorized agency user and Secretariat-approved client are required.",
-    url: "https://developer.ungm.org/Article/SearchNotices",
+    category: "UN and multilateral procurement",
+    organizations: "UNDP, UNICEF, WHO, WFP, UNOPS, IOM and other UN entities",
+    status: "Public UNGM portal; automated public-data route under validation",
+    detail: "UNGM says procurement notices from most UN organizations are publicly accessible and free, with 54 UN and UN-affiliated bodies publishing there. Its documented developer GET /API/Notices endpoint requires an OAuth authorization-code user token and is scoped to the authorized agency. KEREN links to the public notice portal but does not use an agency-scoped API token or an unverified private endpoint.",
+    url: "https://www.ungm.org/Public/Notice",
   },
   {
     category: "Nigeria public institutions",
-    organizations: "NDDC, BPP/NOCOPO, TETFund, NITDA/NCAIR and other public agencies",
-    status: "NCAIR RSS connector implemented; other channels under validation",
-    detail: "NCAIR's official RSS feed is registered with category filtering and a 180-day publication window; every accepted record remains a draft. NDDC currently reports no active tender notices and requires vendor registration for full tender details. The verified TETFund NRF 2025 call closed on 28 August 2025; no open 2026 NRF call has been confirmed. BPP/NOCOPO's open-data mirror is a periodic OCDS snapshot with documented date-quality limitations, not a real-time tender API.",
-    url: "https://ncair.nitda.gov.ng/opportunities/",
+    organizations: "TETFund, NDDC, BPP/NOCOPO, NITDA/ONDI and NCAIR",
+    status: "TETFund HTML and NCAIR RSS connectors implemented",
+    detail: "TETFund's official news listing is filtered for explicit procurement and funding-call titles; undated, unrelated and older-than-180-day items are skipped. NCAIR uses its official RSS categories and 180-day window. At the 25 November 2026 review, NDDC reported no active tender notices and said full details require vendor registration. BPP/NOCOPO data is available as periodic OCDS snapshots with date-quality caveats, not a real-time tender feed. ONDI lists iHatch, WE-Elevate and innovation programmes, but no stable official feed or API has been validated.",
+    url: "https://www.tetfund.gov.ng/news",
   },
   {
-    category: "Foundations and bilateral donors",
-    organizations: "Gates Foundation, Mastercard Foundation, Tony Elumelu Foundation, GIZ, KfW, AFD, JICA and Open Society",
-    status: "Publisher-specific feeds and eligibility rules required",
-    detail: "Gates routes applicants to its RFP and Grand Challenges portals and says most grants go to US tax-exempt organizations. GIZ uses its e-procurement platform, Bund.de and TED for Germany/EU tenders; overseas tenders may sit with country offices. Existing FCDO coverage remains active.",
-    url: "https://www.gatesfoundation.org/about/how-we-work/grant-opportunities",
+    category: "Research funding and foundations",
+    organizations: "Wellcome, Gates Foundation / Grand Challenges, Mastercard Foundation, Tony Elumelu Foundation and other foundations",
+    status: "Official programme pages monitored; publisher-specific access rules apply",
+    detail: "Wellcome's scheme catalogue currently includes apply-anytime awards and identifies administering-organisation locations that include low- and middle-income countries in Africa for selected schemes; this does not make every award eligible to every applicant. Gates routes applicants to separate RFP and Grand Challenges portals and says most grants go to US 501(c)(3) or other tax-exempt organizations. At the 25 November 2026 review, Mastercard Foundation's FAQ stated it had no open calls for proposals and works through partners. No generic foundation feed is treated as an open call.",
+    url: "https://wellcome.org/research-funding/schemes",
   },
   {
-    category: "Accelerators and venture programmes",
-    organizations: "Google for Startups, Y Combinator, Techstars, Catalyst Fund and similar programmes",
-    status: "Programme-specific deadlines and eligibility required",
-    detail: "YC states that late applications for its Winter 2027 batch are still being considered. The Google for Startups Africa 2026 cohort closed applications on 18 March 2026; Techstars' listed November 2026 cycle deadline has passed. Closed cohorts must not be advertised as open.",
+    category: "Accelerators and startup programmes",
+    organizations: "Y Combinator, Techstars, Google for Startups, Africa's Business Heroes, Seedstars and similar programmes",
+    status: "Official programme pages monitored; cohort windows require review",
+    detail: "These programmes use separate cohort-specific application pages and deadlines rather than a validated common feed. Current programme pages can change independently; applications are not marked open from a generic programme or newsletter page. KEREN requires the exact cohort page, current deadline, location/time-zone terms and founder eligibility to be checked before approval.",
     url: "https://www.ycombinator.com/apply",
+  },
+  {
+    category: "Bilateral development agencies",
+    organizations: "JICA, GIZ, KfW, AFD and other bilateral agencies",
+    status: "FCDO Atom connector active; other channels under validation",
+    detail: "JICA publishes official RSS feeds for field news, press releases, notices and investor relations, but its general Notices feed includes administrative and fraud-prevention notices, not only grants or tenders, so it is not imported as an opportunity feed. GIZ, KfW and AFD use separate procurement and country-office channels; each needs its own eligibility and notice validation before automation.",
+    url: "https://www.jica.go.jp/english/rss/",
   },
 ];
 
@@ -70,6 +77,8 @@ function sourceDisplayName(source?: string) {
       return "FCDO";
     case "ncair-opportunities":
       return "NCAIR";
+    case "tetfund-opportunities":
+      return "TETFund";
     case "afdb-project-procurement":
       return "African Development Bank";
     default:
@@ -166,7 +175,7 @@ export default async function OpportunitySourcesPage({
         </div>
 
         <span className="rounded-full border border-line bg-white px-3 py-1.5 text-xs font-semibold text-stone">
-          {OPPORTUNITY_SOURCE_REGISTRY.length} implemented connectors
+          {OPPORTUNITY_SOURCE_REGISTRY.length} registered sources
         </span>
       </header>
 
@@ -260,6 +269,7 @@ export default async function OpportunitySourcesPage({
                 !isAccessRestricted &&
                 (source.key === "grants-gov" ||
                   source.key === "ted" ||
+                  source.key === "tetfund-opportunities" ||
                   source.method === "RSS" ||
                   source.method === "ATOM");
 
