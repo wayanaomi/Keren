@@ -72,6 +72,17 @@ export const OPPORTUNITY_SOURCE_REGISTRY: OpportunitySourceDefinition[] = [
     maxFeedPublicationAgeDays: 180,
     pollIntervalMinutes: 1440,
   },
+  {
+    key: "tetfund-opportunities",
+    name: "TETFund — Official Procurement and Funding Notices",
+    organization: "Tertiary Education Trust Fund (TETFund), Nigeria",
+    category: "Nigerian public-sector procurement and research funding",
+    method: "HTML",
+    opportunityType: "OTHER",
+    websiteUrl: "https://www.tetfund.gov.ng/",
+    listingUrl: "https://www.tetfund.gov.ng/news",
+    pollIntervalMinutes: 1440,
+  },
 ];
 
 export function getOpportunitySourceDefinition(

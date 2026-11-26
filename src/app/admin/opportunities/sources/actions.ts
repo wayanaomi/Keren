@@ -13,6 +13,9 @@ import {
 import {
   importFeedOpportunities,
 } from "@/lib/opportunities/source-engine/feeds";
+import {
+  importTETFundOpportunities,
+} from "@/lib/opportunities/sources/tetfund";
 
 const SOURCES_PATH = "/admin/opportunities/sources";
 
@@ -99,6 +102,10 @@ export async function runOpportunitySourceAction(
 
       case "ncair-opportunities":
         result = await importFeedOpportunities(admin.id, sourceKey);
+        break;
+
+      case "tetfund-opportunities":
+        result = await importTETFundOpportunities(admin.id);
         break;
 
       default:
