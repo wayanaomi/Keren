@@ -131,7 +131,7 @@ function nearestListingDate(
 
   // Prefer a semantic listing card when the publisher supplies one. This
   // prevents a date from an adjacent notice being borrowed by an undated item.
-  for (const tag of ["article", "li"]) {
+  for (const tag of ["li", "article"]) {
     const openTag = new RegExp(`<${tag}\\b`, "gi");
     let candidateStart = -1;
     for (const match of html.slice(0, anchorStart).matchAll(openTag)) {
@@ -368,6 +368,7 @@ export async function importTETFundOpportunities(
           "User-Agent": "Keren Opportunity Discovery/1.0 (+official source monitoring)",
         },
         cache: "no-store",
+        redirect: "manual",
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
 

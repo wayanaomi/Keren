@@ -153,4 +153,29 @@ describe("parseTETFundNewsListing", () => {
     expect(result.items[0].opportunity.deadline).toBeNull();
     expect(result.items[0].opportunity.fundingAmount).toBeNull();
   });
+  it("does not borrow a sibling list item's publication date", () => {
+    const html = `
+      <article>
+        <ul>
+          <li>
+            <a href="/news/details/89">Call for Proposals: National Research Fund</a>
+            <span>Nov 12, 2026</span>
+          </li>
+          <li>
+            <a href="/news/details/90">Call for Proposals: Undated Research Award</a>
+          </li>
+        </ul>
+      </article>`;
+
+    const result = parseTETFundNewsListing(
+      html,
+      source,
+      new Date("2026-11-25T12:00:00.000Z"),
+    );
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].externalId).toBe("tetfund-news-89");
+    expect(result.skipped).toBe(1);
+  });
+
 });
