@@ -349,7 +349,8 @@ async function readBoundedBody(response: Response): Promise<string> {
 }
 
 export async function importTETFundOpportunities(
-  adminUserId: string,
+  adminUserId: string | null,
+  trigger: "MANUAL" | "SCHEDULED" | "RETRY" = "MANUAL",
 ): Promise<OpportunitySourceImportResult> {
   const source = getOpportunitySourceDefinition("tetfund-opportunities");
   if (!source) throw new Error("TETFund source is not registered.");
@@ -360,7 +361,7 @@ export async function importTETFundOpportunities(
   return runOpportunitySourceImport({
     source,
     adminUserId,
-    fetchItems: async () => {
+    trigger,fetchItems: async () => {
       const response = await fetch(source.listingUrl, {
         method: "GET",
         headers: {

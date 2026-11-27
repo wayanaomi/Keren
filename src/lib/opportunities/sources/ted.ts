@@ -382,7 +382,8 @@ function mapTedNotice(notice: JsonRecord) {
 }
 
 export async function importTedOpportunities(
-  adminUserId: string,
+  adminUserId: string | null,
+  trigger: "MANUAL" | "SCHEDULED" | "RETRY" = "MANUAL",
 ): Promise<TedImportResult> {
   const source = getOpportunitySourceDefinition("ted");
 
@@ -393,7 +394,7 @@ export async function importTedOpportunities(
   return runOpportunitySourceImport({
     source,
     adminUserId,
-    fetchItems: async () => {
+    trigger,fetchItems: async () => {
       const items: NormalizedOpportunitySourceItem[] = [];
 
       let scanned = 0;

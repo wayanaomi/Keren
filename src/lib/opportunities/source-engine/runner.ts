@@ -12,13 +12,33 @@ import {
 
 interface RunOpportunitySourceImportInput {
   source: OpportunitySourceDefinition;
-  adminUserId: string;
+  adminUserId: string | null;
   trigger?: "MANUAL" | "SCHEDULED" | "RETRY";
   fetchItems: () => Promise<OpportunitySourceFetchResult>;
 }
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+const SOURCE_LOCK_TTL_MS = 10 * 60 * 1000;
+const RETRY_BASE_DELAY_MINUTES = 5;
+const RETRY_MAX_DELAY_MINUTES = 360;
+
+export class OpportunitySourceLockedError extends Error {
+  constructor(sourceKey: string) {
+    super(`Opportunity source "${sourceKey}" is already running.`);
+    this.name = "OpportunitySourceLockedError";
+  }
+}
+
+function retryDelayMinutes(consecutiveFailures: number): number {
+  const exponent = Math.min(6, Math.max(0, consecutiveFailures));
+
+  return Math.min(
+    RETRY_MAX_DELAY_MINUTES,
+    RETRY_BASE_DELAY_MINUTES * 2 ** exponent,
+  );
 }
 
 export async function runOpportunitySourceImport(
@@ -52,6 +72,26 @@ export async function runOpportunitySourceImport(
       pollIntervalMinutes: source.pollIntervalMinutes ?? 1440,
     },
   });
+
+  // Atomically claim the source so manual and scheduled workers
+  // cannot process the same source concurrently.
+  const lockNow = new Date();
+  const lock = await db.opportunitySource.updateMany({
+    where: {
+      id: sourceRecord.id,
+      OR: [
+        { lockedUntil: null },
+        { lockedUntil: { lte: lockNow } },
+      ],
+    },
+    data: {
+      lockedUntil: new Date(lockNow.getTime() + SOURCE_LOCK_TTL_MS),
+    },
+  });
+
+  if (lock.count !== 1) {
+    throw new OpportunitySourceLockedError(source.key);
+  }
 
   const run = await db.opportunitySourceRun.create({
     data: {
@@ -92,10 +132,12 @@ export async function runOpportunitySourceImport(
         where: { id: sourceRecord.id },
         data: {
           lastError: message,
+          lockedUntil: null,
           consecutiveFailures: { increment: 1 },
           nextRunAt: new Date(
             finishedAt.getTime() +
-              (source.pollIntervalMinutes ?? 1440) * 60_000,
+              retryDelayMinutes(sourceRecord.consecutiveFailures ?? 0) *
+                60_000,
           ),
         },
       });
@@ -332,13 +374,16 @@ export async function runOpportunitySourceImport(
       where: { id: sourceRecord.id },
       data: {
         lastError: errorSummary,
+        lockedUntil: null,
         lastRunSucceededAt:
           status === "SUCCEEDED" ? finishedAt : undefined,
         consecutiveFailures:
           result.failed > 0 ? { increment: 1 } : 0,
         nextRunAt: new Date(
           finishedAt.getTime() +
-            (source.pollIntervalMinutes ?? 1440) * 60_000,
+            (result.failed > 0
+              ? retryDelayMinutes(sourceRecord.consecutiveFailures ?? 0)
+              : (source.pollIntervalMinutes ?? 1440)) * 60_000,
         ),
       },
     });

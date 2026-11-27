@@ -590,8 +590,9 @@ async function enrichGovUkFeedItems(
 }
 
 export async function importFeedOpportunities(
-  adminUserId: string,
+  adminUserId: string | null,
   sourceKey: string,
+  trigger: "MANUAL" | "SCHEDULED" | "RETRY" = "MANUAL",
 ): Promise<OpportunitySourceImportResult> {
   const source = getOpportunitySourceDefinition(sourceKey);
 
@@ -608,7 +609,7 @@ export async function importFeedOpportunities(
   return runOpportunitySourceImport({
     source,
     adminUserId,
-    fetchItems: async () => {
+    trigger,fetchItems: async () => {
       const response = await fetchWithRetry(
         source.feedUrl?.trim() || source.listingUrl,
         {

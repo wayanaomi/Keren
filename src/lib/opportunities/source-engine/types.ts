@@ -6,6 +6,8 @@ import type {
 
 export interface OpportunitySourceDefinition {
   key: string;
+  // False means no working automatic connector is currently registered.
+  automated?: boolean;
   name: string;
   organization: string;
   category: string;

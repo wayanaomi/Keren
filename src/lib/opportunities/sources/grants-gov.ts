@@ -404,7 +404,8 @@ function mapGrantsGovOpportunity(
 }
 
 export async function importGrantsGovOpportunities(
-  adminUserId: string,
+  adminUserId: string | null,
+  trigger: "MANUAL" | "SCHEDULED" | "RETRY" = "MANUAL",
 ): Promise<OpportunitySourceImportResult> {
   const source = getOpportunitySourceDefinition("grants-gov");
 
@@ -415,7 +416,7 @@ export async function importGrantsGovOpportunities(
   return runOpportunitySourceImport({
     source,
     adminUserId,
-    fetchItems: async () => {
+    trigger,fetchItems: async () => {
       const hits = await searchGrantsGov();
       const items: NormalizedOpportunitySourceItem[] = [];
 

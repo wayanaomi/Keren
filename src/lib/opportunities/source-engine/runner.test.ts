@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   sourceUpsert: vi.fn(),
   sourceCreateRun: vi.fn(),
   sourceUpdate: vi.fn(),
+  sourceUpdateMany: vi.fn(),
   runUpdate: vi.fn(),
   itemFindUnique: vi.fn(),
   itemUpdate: vi.fn(),
@@ -25,6 +26,7 @@ vi.mock("@/lib/db", () => ({
     opportunitySource: {
       upsert: mocks.sourceUpsert,
       update: mocks.sourceUpdate,
+      updateMany: mocks.sourceUpdateMany,
     },
     opportunitySourceRun: {
       create: mocks.sourceCreateRun,
@@ -107,6 +109,7 @@ beforeEach(() => {
   });
 
   mocks.sourceUpdate.mockResolvedValue({});
+  mocks.sourceUpdateMany.mockResolvedValue({ count: 1 });
   mocks.runUpdate.mockResolvedValue({});
 
   mocks.itemFindUnique.mockResolvedValue(null);
@@ -125,6 +128,22 @@ beforeEach(() => {
 });
 
 describe("runOpportunitySourceImport", () => {
+  it("refuses to start if another worker owns the source lock", async () => {
+    mocks.sourceUpdateMany.mockResolvedValue({ count: 0 });
+
+    await expect(
+      runOpportunitySourceImport({
+        source,
+        adminUserId: null,
+        trigger: "SCHEDULED",
+        fetchItems: async () => mockFetchedItems([makeCandidate()]),
+      }),
+    ).rejects.toThrow("is already running");
+
+    expect(mocks.sourceCreateRun).not.toHaveBeenCalled();
+    expect(mocks.opportunityCreate).not.toHaveBeenCalled();
+  });
+
   it("creates a new draft opportunity and source item", async () => {
     const result = await runOpportunitySourceImport({
       source,

@@ -29,6 +29,7 @@ export const OPPORTUNITY_SOURCE_REGISTRY: OpportunitySourceDefinition[] = [
   },
   {
     key: "afdb-project-procurement",
+    automated: false,
     name: "African Development Bank — Project Procurement",
     organization: "African Development Bank Group",
     category: "Development project procurement",
